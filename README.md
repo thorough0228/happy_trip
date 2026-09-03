@@ -208,6 +208,59 @@ LLM 接收 PlannerContext,在事实范围内编排
 成功 → 返回 TripPlan
 ```
 
+## 设计模式与技术选型
+
+### Planner Agent 设计模式:**Plan-and-Execute + 轻量 Reflexion**
+
+**没有采用 ReAct、AutoGPT、LangGraph 等 agent 框架**。采用的是更朴素的模式:
+
+| 模式 | 是否使用 | 原因 |
+|---|---|---|
+| **Plan-and-Execute** | ✅ **使用** | 旅行规划工具调用固定(POI / 天气 / 票价),程序决定调什么,LLM 决定怎么编排 |
+| **Reflexion**(反思重试) | ✅ **使用** | validate_plan 失败时,把错误信息反馈给 LLM 让它重生成 |
+| ReAct(思考-行动循环) | ❌ 不使用 | LLM 自己决定调工具,但旅行规划流程已知,不需要这种灵活性 |
+| AutoGPT / LangGraph | ❌ 不使用 | 过度设计,会增加复杂度和成本 |
+
+**具体含义**:
+
+```python
+# 一次外部数据收集(程序控制,不是 LLM 控制)
+ctx = build_context(req)              # 高德 POI + 天气 + 票价表
+
+# LLM 一次输出完整计划(不是多轮工具调用)
+messages = build_prompt(req, ctx)
+raw = chat(messages)
+
+# 校验失败 → 带反馈重试(最多 3 次)
+for attempt in range(3):
+    plan = TripPlan.model_validate_json(raw)
+    errors = validate_plan(plan, ctx)
+    if not errors:
+        return plan
+    messages = _build_retry_messages(req, ctx, errors)
+```
+
+### 技术栈依赖
+
+| 组件 | 选型 | 备注 |
+|---|---|---|
+| LLM SDK | `openai` 兼容 SDK | 不是 LangChain,直接调 API,行为更可控 |
+| Schema 校验 | Pydantic v2 | TripRequest / TripPlan / POI 全部 Pydantic |
+| 后端框架 | FastAPI | 标准选择 |
+| 前端框架 | Vue 3 + Vite + TypeScript | 不引入 Nuxt/Next 这类 SSR |
+| UI 库 | Ant Design Vue | 不混用 Element Plus |
+| 地图 SDK | 高德 Web JS API(动态加载) | 不是 Mapbox / Leaflet |
+| 缓存 | 内存 dict + TTL | 不引入 Redis(单进程够用) |
+
+**为什么不用 LangChain / LlamaIndex 等框架**:
+
+- **更可控**:LLM 调用细节自己写,出问题能直接定位
+- **更轻量**:依赖少,部署简单
+- **更易学**:不绑定框架,核心代码就是 plain Python
+- **够用**:本项目逻辑用框架反而增加抽象成本
+
+如果未来需要更复杂的工具编排(比如让 LLM 自己决定要不要查汇率、要不要查交通),可以引入 LangGraph 局部使用,不重写整体架构。
+
 ## 已知限制
 
 - **LLM thinking 关闭对 MiniMax-M3 部分生效**:响应时间从 30 秒降到 ~18 秒,但完全关闭依赖 minimax 服务端支持
