@@ -30,7 +30,7 @@
 
 ```
 happy_trip/
-├── backend/                    # 后端
+├── backend/                    # 后端(FastAPI 应用)
 │   ├── app/
 │   │   ├── agents/             # Planner Agent (prompt + 重试 + feedback)
 │   │   ├── api/                # FastAPI 路由
@@ -45,15 +45,15 @@ happy_trip/
 │   │   │   ├── pricing.py      # 价格规则 + 静态票价表
 │   │   │   └── validation.py   # 12 项硬规则校验
 │   │   └── services/           # 外部服务封装(高德、LLM、缓存)
-│   ├── evaluation/             # 规则评测
-│   │   ├── eval_set.jsonl      # 20 条冻结核样本
-│   │   ├── run_eval.py          # 评测脚本
-│   │   └── eval_report.json    # 输出报告(被 .gitignore 排除)
 │   ├── run.py                  # 启动入口
 │   ├── requirements.txt
 │   ├── .env.example            # 配置模板
 │   └── .env                    # 真实配置(被 .gitignore 排除)
-├── frontend/                   # 前端
+├── evaluation/                 # 规则评测(独立目录,与 backend 解耦)
+│   ├── eval_set.jsonl          # 20 条冻结核样本
+│   ├── run_eval.py             # 评测脚本
+│   └── eval_report.json        # 输出报告(被 .gitignore 排除)
+├── frontend/                   # 前端(Vue 3)
 │   ├── src/
 │   │   ├── views/
 │   │   │   ├── Home.vue        # 旅行需求表单
@@ -157,7 +157,7 @@ VITE_AMAP_WEB_KEY=your_amap_web_key_here
 
 ```bash
 conda activate happy_trip
-cd backend
+cd happy_trip
 
 # 跑评测(5-10 分钟)
 python -m evaluation.run_eval
