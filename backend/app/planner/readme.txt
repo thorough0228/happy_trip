@@ -1,0 +1,1 @@
+把请求 + 外部数据编译成 PlannerContext，不直接调外部 API
