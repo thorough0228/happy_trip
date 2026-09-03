@@ -4,14 +4,20 @@
 读 eval_set.jsonl,对每条样本调 plan_trip,统计规则指标,输出汇总报告。
 
 运行:
-    cd backend
+    cd happy_trip
     python -m evaluation.run_eval
 """
 import json
 import statistics
+import sys
 import time
 from pathlib import Path
 from typing import Any
+
+# 把 backend 加进 sys.path,这样才能 import app.*
+# (evaluation 在 happy_trip/ 根目录下,不归 backend 管)
+_BACKEND_PATH = Path(__file__).parent.parent / "backend"
+sys.path.insert(0, str(_BACKEND_PATH))
 
 from pydantic import ValidationError
 
