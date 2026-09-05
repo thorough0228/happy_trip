@@ -142,11 +142,11 @@ reasoning 模型(如 M3)的响应混杂大量 thinking 块,里面可能有伪 JS
 **10. 坐标回填防 LLM 幻觉**
 LLM 输出 `TripPlan` 时**不**输出经纬度(怕它编),后端 `_enrich_locations` 用 name 映射回填 PlannerContext 里 POI 的真实坐标,专门给前端 `DayMap` 用。
 
-**11. 路径优化(FloatTrip 风格)**
-单天景点暴力枚举全排列,haversine 计算总路程,选最短排列重写 attractions 顺序,重算每个节点的 `dist_from_prev_km`。保证 `best_km ≤ original_km`(原始排列是候选项之一)。Meals/hotel 保持原位不动(happy_trip 没有 period 时段概念)。复杂度 N!,实际行程 2-5 个景点完全可接受。
+**11. 路径优化**
+单天景点暴力枚举全排列,haversine 计算总路程,选最短排列重写 attractions 顺序,重算每个节点的 `dist_from_prev_km`。保证 `best_km ≤ original_km`(原始排列是候选项之一)。Meals/hotel 保持原位不动(系统没有 period 时段概念)。复杂度 N!,实际行程 2-5 个景点完全可接受。
 前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
 
-**12. Time Check Agent(开放时间验证,FloatTrip 风格)**
+**12. Time Check Agent(开放时间验证)**
 独立 Agent 验证 plan 中每个景点的开放时间是否与行程日期冲突(闭馆日、营业时段、节假日)。CoT 推理 → 输出 conflicts → 嵌入主循环共用重试 budget(reviewer 不管时间)。POI.opening_hours 字段从高德 V3 `business.opening_hours` 解析,缺失则跳过(降级不报错)。职责分离避免 reviewer 与 Time Check 双重干预震荡。
 
 ---
