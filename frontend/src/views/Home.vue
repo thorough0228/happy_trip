@@ -140,7 +140,7 @@
     <!-- 进度区:贴在"生成行程"按钮下方,留在 Home 页,完成后再跳 Result -->
     <div v-if="showProgress" class="progress-section">
       <a-progress
-        :percent="progressPct / 100"
+        :percent="progressPct"
         :status="errorMsg ? 'exception' : 'active'"
         :stroke-color="errorMsg ? undefined : '#1677ff'"
       />
