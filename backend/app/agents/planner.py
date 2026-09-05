@@ -1,15 +1,14 @@
-# 负责"组装 prompt + 调 LLM + 解析 JSON + 业务校验 + reviewer 软提示"。
-from app.agents.reviewer import review_warnings
+# 负责"组装 prompt + 调 LLM + 解析 JSON + 业务校验 + reviewer 提案"。
+from app.agents.reviewer import review_propose
 from app.models.schemas import TripRequest, TripPlan
 from app.services.llm import chat
 from app.services import progress
 from app.planner.context import PlannerContext, build_context
 from app.planner.validation import validate_plan
 
-# Pydantic schema 校验失败最多重试 1 次(JSON 损坏/字段缺失是致命错)。
-# 业务校验(候选/预算/多样性)不再重试,而是 reviewer agent 一次性软提示,
-# 避免浪费 token —— 详见 agents/reviewer.py。
-PYDANTIC_MAX_RETRIES = 1
+# LLM 主循环最多跑 2 次(初始 1 次 + 业务校验失败后重试 1 次)。
+# 2 次仍未通过业务校验 → 调 reviewer 提出改进方案,planner 第 3 次生成最终版。
+BUSINESS_MAX_ATTEMPTS = 2
 
 
 def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
@@ -124,19 +123,23 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
     ]
 
 
-def _build_retry_messages(req: TripRequest, ctx: PlannerContext, errors: list[str]) -> list[dict]:
+def _build_retry_messages(
+    req: TripRequest,
+    ctx: PlannerContext,
+    feedback: list[str],
+    heading: str = "上一次输出未通过校验,以下问题必须修复:",
+) -> list[dict]:
     """
-    校验失败时,把错误反馈追加到 messages,让 LLM 重生成。
+    把反馈(错误列表 / reviewer 建议)追加到 messages,让 LLM 重生成。
 
-    关键:把 errors 作为新的 user 消息追加,而不是修改 system prompt。
-    LLM 看到"上次输出有哪些错",基于这些错修正。
+    heading 控制措辞 — 业务校验时用"必须修复",reviewer 提案后用"基于此重新生成"。
     """
     base = build_prompt(req, ctx)
     base.append({
         "role": "user",
         "content": (
-            "上一次输出未通过校验,以下问题必须修复:\n"
-            + "\n".join(f"- {e}" for e in errors)
+            heading + "\n"
+            + "\n".join(f"- {item}" for item in feedback)
             + "\n\n请重新输出完整 JSON,严格遵守硬约束。"
         ),
     })
@@ -146,10 +149,13 @@ def _build_retry_messages(req: TripRequest, ctx: PlannerContext, errors: list[st
 async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
     """
     规划行程的主入口:
+
     1. 编译 PlannerContext
-    2. 调 LLM → 解析 JSON(Pydantic schema 失败最多重试 1 次)
-    3. 业务校验(候选/预算/多样性)**不重试**,不通过则调 reviewer 生成软警告追加到 notes
-    4. 返回 TripPlan
+    2. 主循环:LLM 生成 → 解析 + 业务校验,失败则把错误反馈给 LLM 重试
+       最多 BUSINESS_MAX_ATTEMPTS 次(默认 2 次)
+    3. 主循环结束仍未通过业务校验 → 调 reviewer 提出改进方案
+    4. Planner 基于 reviewer 方案再生成一次(第 3 次,作为最终版)
+    5. Pydantic schema 致命错统一抛 ValueError
 
     task_id: 可选,传入时上报进度给前端
     """
@@ -158,40 +164,69 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
             await progress.update_progress(task_id, stage, progress_pct)
 
     await report("⏳ 准备中...", 0)
-    # 搜索阶段在 build_context 内部细化为 4 个子步骤(10/20/30/45)
     ctx = await build_context(req, reporter=report)
     messages = build_prompt(req, ctx)
 
-    # ---- Pydantic 重试循环(只处理 JSON 损坏 / schema 字段缺失)----
+    # ---- 主循环:LLM 生成 + 业务校验 + 反思重试 ----
     plan: TripPlan | None = None
-    last_pydantic_err: str = ""
-    for attempt in range(PYDANTIC_MAX_RETRIES + 1):
-        await report(f"🤖 AI 生成行程(第 {attempt + 1} 次)...", 60)
+    last_errors: list[str] = []
+    last_pydantic: str = ""
+    final_errors: list[str] = []
+
+    for attempt in range(BUSINESS_MAX_ATTEMPTS):
+        await report(f"🤖 AI 生成行程(第 {attempt + 1}/{BUSINESS_MAX_ATTEMPTS} 次)...", 60 + attempt * 12)
         raw_text = await chat(messages, temperature=0.7)
 
-        await report("✅ 解析行程数据...", 75)
+        await report("✅ 解析行程数据...", 65 + attempt * 12)
         try:
             plan = TripPlan.model_validate_json(raw_text)
-            break  # 解析成功,跳出 Pydantic 重试循环
         except Exception as e:
-            last_pydantic_err = str(e)
+            last_pydantic = str(e)
+            last_errors = [f"JSON 解析失败: {e}"]
             print(f"[planner] 第{attempt+1}次 Pydantic 解析失败: {e}")
-            if attempt < PYDANTIC_MAX_RETRIES:
-                messages = _build_retry_messages(req, ctx, [f"JSON 解析失败: {e}"])
+            messages = _build_retry_messages(req, ctx, last_errors)
+            plan = None
+            continue
+
+        errors = validate_plan(plan, ctx)
+        if not errors:
+            # 成功
+            break
+        last_errors = errors
+        print(f"[planner] 第{attempt+1}次业务校验失败: {len(errors)} 个错误")
+        messages = _build_retry_messages(req, ctx, errors)
 
     if plan is None:
-        # Pydantic 全部失败,这种 JSON 损坏一般是 LLM 严重异常,直接抛错给上层
+        # Pydantic 全部失败,严重异常
         raise ValueError(
-            f"Pydantic schema 解析失败(已重试 {PYDANTIC_MAX_RETRIES + 1} 次): {last_pydantic_err}"
+            f"Pydantic schema 解析失败(已重试 {BUSINESS_MAX_ATTEMPTS} 次): {last_pydantic}"
         )
 
-    # ---- 业务校验(不重试,不通过走 reviewer 软提示)----
-    errors = validate_plan(plan, ctx)
-    if errors:
-        await report("📋 Reviewer 生成软警告...", 90)
-        warnings = await review_warnings(plan, errors, ctx)
-        plan.notes = list(plan.notes) + warnings
-        print(f"[planner] 业务校验 {len(errors)} 个错误,reviewer 生成 {len(warnings)} 条警告")
+    final_errors = validate_plan(plan, ctx)
+    if final_errors:
+        # ---- Reviewer 提出改进方案,Planner 基于方案再生成 ----
+        await report("📋 Reviewer 提出改进方案...", 88)
+        suggestions = await review_propose(req, ctx, last_plan=plan, errors=final_errors)
+        print(f"[planner] Reviewer 提出 {len(suggestions)} 条建议")
+
+        await report("🤖 AI 基于 Reviewer 方案生成最终版...", 92)
+        messages = _build_retry_messages(
+            req,
+            ctx,
+            suggestions,
+            heading="Reviewer 已分析上一次的问题,提出以下改进方案,请基于此重新生成:",
+        )
+        raw_text = await chat(messages, temperature=0.7)
+        try:
+            plan = TripPlan.model_validate_json(raw_text)
+            print("[planner] 基于 Reviewer 方案成功生成最终版")
+        except Exception as e:
+            # Reviewer 后 Pydantic 失败 — 降级返回原 plan + notes 警告
+            print(f"[planner] Reviewer 后 Pydantic 解析失败: {e},返回原 plan + 警告")
+            plan.notes = list(plan.notes) + [
+                f"业务校验有 {len(final_errors)} 项未通过,Reviewer 方案生成失败,以下项目可能不准确:",
+                *[f"- {e}" for e in final_errors[:5]],
+            ]
 
     await report("🎉 完成", 100)
     _enrich_locations(plan, ctx)
