@@ -1,9 +1,9 @@
 """
-单天路线优化(FloatTrip 风格简化版)。
+单天路线优化(简化版)。
 
 - 暴力枚举 attractions 全排列,haversine 计算总路程,选最短排列
 - 重排 + 重算每个 attraction.dist_from_prev_km
-- meals / hotel / period 时段 保持原位不动(happy_trip 没有 period 概念)
+- meals / hotel / period 时段 保持原位不动(系统没有 period 概念)
 - 保证 best_km ≤ original_km(原始排列是候选项之一,不会越优化越差)
 
 复杂度 N!,实际行程 2-5 个景点完全可接受。

@@ -1,6 +1,5 @@
 """
 Time Check Agent — 校验行程日期 vs 景点开放时间冲突。
-参考 FloatTrip nodes.py:471-565 的 time_check_node 设计。
 
 职责分离:
 - reviewer: 候选约束、预算、餐厅多样性、预算利用率
