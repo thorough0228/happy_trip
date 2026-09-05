@@ -118,7 +118,7 @@ LLM 经常幻觉价格。Happy Trip 强制:
 - 景点价格:静态票价表 `attraction_price.json`(按城市 × 景点索引,区分淡/旺/平季)
 - 酒店价格:`base × 城市档位系数 × 住宿类型系数 × 间数 × 晚数` 规则估价
 - 餐饮价格:按 `餐次 × 人数` 规则估价
-LLM 只能引用候选 POI 的 `cost` 字段,不允许自报数字。`budget_arithmetic_consistent` 规则再校验各项加总 = total(±5%);`budget_utilization_ok` 校验总成本不小于用户预算的下限比例(经济档 50% / 标准档 70% / 豪华档 85%),防止 LLM 偷懒出低价行程。
+LLM 只能引用候选 POI 的 `cost` 字段,不允许自报数字。`budget_arithmetic_consistent` 规则再校验各项加总 = total(±5%);`budget_utilization_ok` 校验总成本不小于用户预算的 80%(统一阈值),防止 LLM 偷懒出低价行程。
 
 **5. 天气感知行程**
 `build_context` 拉取行程日期的天气预报(高德 V3 weatherInfo,extensions=all),写入 `PlannerContext.weather`。LLM 在 prompt 里看到逐日天气,雨雪天会优先选博物馆、展馆等室内景点。超过预报范围(>3 天)时降级为 `unknown`,不中断规划。
@@ -321,7 +321,7 @@ happy_trip/
     (确定性,零 LLM 成本)      / 餐厅多样性
 ```
 
-- **输入冻结**:20 条样本覆盖 11 个城市、3 种人数类型、3 种预算档位,确定可复现
+- **输入冻结**:20 条样本覆盖 11 个城市、3 种人数类型、确定可复现
 - **纯确定性评分**:13 项硬规则全部由 Python 代码执行,不依赖 LLM 评委,跑一次评测零额外 API 成本
 - **业务校验不重试**:`hard_pass` 反映的是 LLM 一次输出的合规度(plan 仍可能带 reviewer 软警告)。多次跑取平均以减少 LLM 随机性影响
 
@@ -337,7 +337,7 @@ happy_trip/
 | `meal_grounding_ok` | 早午晚三餐都命中候选,不是占位词 |
 | `budget_arithmetic_consistent` | `budget.total = 各项加总(±5%)` |
 | `budget_within_constraint` | 总预算不超用户预算上限 |
-| `budget_utilization_ok` | `total / 用户预算 ≥ 档位下限`(经济 50% / 标准 70% / 豪华 85%),防 LLM 偷懒出低价 |
+| `budget_utilization_ok` | `total / 用户预算 ≥ 80%`(统一阈值),防 LLM 偷懒出低价 |
 | `days_count_match` | `days` 数组长度 = `travel_days` |
 | `hotel_nights_match` | 酒店晚数合计 = `travel_days - 1` |
 | `attraction_count_ok` | 每天至少 1 个景点 |

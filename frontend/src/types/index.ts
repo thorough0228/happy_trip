@@ -9,7 +9,6 @@ export interface Party {
 
 export interface BudgetConstraint {
   amount: number
-  level: 'economy' | 'standard' | 'premium'
 }
 
 export interface TripRequest {
