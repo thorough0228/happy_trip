@@ -157,18 +157,19 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
         if task_id:
             await progress.update_progress(task_id, stage, progress_pct)
 
-    await report("搜索景点/酒店/餐厅候选 + 获取天气...", 10)
-    ctx = await build_context(req)
+    await report("⏳ 准备中...", 0)
+    # 搜索阶段在 build_context 内部细化为 4 个子步骤(10/20/30/45)
+    ctx = await build_context(req, reporter=report)
     messages = build_prompt(req, ctx)
 
     # ---- Pydantic 重试循环(只处理 JSON 损坏 / schema 字段缺失)----
     plan: TripPlan | None = None
     last_pydantic_err: str = ""
     for attempt in range(PYDANTIC_MAX_RETRIES + 1):
-        await report(f"LLM 生成行程(第 {attempt + 1} 次)...", 40)
+        await report(f"🤖 AI 生成行程(第 {attempt + 1} 次)...", 60)
         raw_text = await chat(messages, temperature=0.7)
 
-        await report("解析 JSON...", 60)
+        await report("✅ 解析行程数据...", 75)
         try:
             plan = TripPlan.model_validate_json(raw_text)
             break  # 解析成功,跳出 Pydantic 重试循环
@@ -187,12 +188,12 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
     # ---- 业务校验(不重试,不通过走 reviewer 软提示)----
     errors = validate_plan(plan, ctx)
     if errors:
-        await report("Reviewer 生成软警告...", 80)
+        await report("📋 Reviewer 生成软警告...", 90)
         warnings = await review_warnings(plan, errors, ctx)
         plan.notes = list(plan.notes) + warnings
         print(f"[planner] 业务校验 {len(errors)} 个错误,reviewer 生成 {len(warnings)} 条警告")
 
-    await report("完成", 100)
+    await report("🎉 完成", 100)
     _enrich_locations(plan, ctx)
     return plan
 

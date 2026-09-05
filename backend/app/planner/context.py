@@ -5,6 +5,7 @@ PlannerContext:整个项目的"产品逻辑心脏"。
 LLM 不再是事实源,只是编排器。
 """
 from datetime import date
+from typing import Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,9 @@ from app.planner.pricing import (
     get_attraction_price,
 )
 from app.planner.weather import get_weather_forecast
+
+# 进度上报回调签名:async def reporter(stage: str, pct: int) -> None
+ProgressReporter = Callable[[str, int], Awaitable[None]]
 
 
 class PlannerContext(BaseModel):
@@ -57,15 +61,35 @@ class PlannerContext(BaseModel):
         return "\n".join(lines)
 
 
-async def build_context(req: TripRequest) -> PlannerContext:
+async def build_context(
+    req: TripRequest,
+    reporter: ProgressReporter | None = None,
+) -> PlannerContext:
     """
     编译 PlannerContext。
 
     当前阶段:景点+酒店+餐饮三类 POI 召回 + 价格填充 + 日期展开 + 天气快照。
     任何一步失败都不抛错,降级为空/默认值,PlannerContext 仍然返回。
+
+    reporter:可选进度回调,被调用方传入时会按子阶段上报(stage + pct)。
+              上报节点:
+                10% 搜索景点候选
+                20% 搜索酒店候选
+                30% 搜索餐厅候选
+                45% 获取天气预报
+              价格填充和日期展开是同步操作,不单独上报。
     """
+    async def step(stage: str, pct: int) -> None:
+        if reporter is not None:
+            await reporter(stage, pct)
+
+    await step("🔍 搜索景点候选...", 10)
     attractions = await search_attractions(req.destination, limit=10)
+
+    await step("🔍 搜索酒店候选...", 20)
     hotels = await search_hotels(req.destination, limit=10)
+
+    await step("🔍 搜索餐厅候选...", 30)
     food = await search_food(req.destination, keyword="", limit=30)
 
     # L6: 给 POI 填价格(LLM 后续只能引用,不能编)
@@ -80,6 +104,7 @@ async def build_context(req: TripRequest) -> PlannerContext:
         )
 
     # L7: 日期展开 + 天气快照
+    await step("🌤 获取天气预报...", 45)
     dates = expand_dates(req.start_date, req.travel_days)
     weather = await get_weather_forecast(req.destination, dates)
 
