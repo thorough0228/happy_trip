@@ -15,7 +15,7 @@ from app.core import redis_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动期校验 Redis,失败抛错让 uvicorn 退出;关闭期释放连接。"""
+    """启动期尝试 init Redis(失败也不抛错);关闭期释放连接。"""
     await redis_client.init_redis()
     try:
         yield
