@@ -57,7 +57,7 @@ class PlannerContext(BaseModel):
             for w in self.weather:
                 lines.append(f"  - {w.day}: {w.weather}, {w.temp_min}°C ~ {w.temp_max}°C")
         if self.budget_rule:
-            lines.append(f"\n【预算】总额 {self.budget_rule.total} 元,档位 {self.budget_rule.level}")
+            lines.append(f"\n【预算】总额 {self.budget_rule.total} 元")
         return "\n".join(lines)
 
 

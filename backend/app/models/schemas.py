@@ -101,7 +101,6 @@ class WeatherDay(BaseModel):
 
 
 class BudgetRule(BaseModel):
-    """预算规则(L6 才填,先占位)。"""
+    """预算规则(L6 才填,先占位)"""
     total: float = Field(description="总预算")
-    level: str = Field(description="档位 economy/standard/premium")
     per_day: float = Field(default=0.0, description="人均日预算(派生)")

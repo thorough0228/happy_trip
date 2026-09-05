@@ -113,7 +113,7 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         f"- 出发日期:{start_date_str}\n"
         f"- 旅行天数:{req.travel_days} 天\n"
         f"- 人数:成人 {req.party.adults} 人,儿童 {req.party.children} 人,老人 {req.party.elders} 人(总 {req.party.total} 人),出行类型:{req.party.companion_type}\n"
-        f"- 总预算:{req.budget_constraint.amount} 元,预算档位:{req.budget_constraint.level}\n"
+        f"- 总预算:{req.budget_constraint.amount} 元\n"
         f"- 交通方式:{req.transportation}\n"
         f"- 住宿类型:{req.accommodation}\n"
         f"- 偏好:{', '.join(req.preferences) if req.preferences else '无特别偏好'}\n"
