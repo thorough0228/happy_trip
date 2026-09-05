@@ -76,3 +76,30 @@ export interface TripPlan {
   budget: Budget
   notes: string[]
 }
+
+// ---------- 异步任务 / SSE 相关 ----------
+
+export type TaskStatus = 'pending' | 'running' | 'done' | 'error'
+
+export interface TaskProgress {
+  task_id: string
+  status: TaskStatus
+  stage: string
+  progress: number  // 0-100
+  result?: TripPlan
+  error?: string
+}
+
+export interface PlanTaskResponse {
+  task_id: string
+}
+
+// SSE 流事件载荷(对应后端 _event_generator 推送的 event 名)
+export interface StreamProgressEvent {
+  status: TaskStatus
+  stage: string
+  progress: number
+}
+export interface StreamErrorEvent {
+  error: string
+}

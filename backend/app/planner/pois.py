@@ -6,7 +6,7 @@ from app.models.poi import POI
 from app.services.amap import search_poi
 
 
-def search_attractions(
+async def search_attractions(
     city: str,
     keyword: str = "",
     limit: int = 10,
@@ -22,7 +22,7 @@ def search_attractions(
     Returns:
         景点 POI 列表。高德失败或无结果时返回空列表,不抛错。
     """
-    pois = search_poi(
+    pois = await search_poi(
         keywords=keyword if keyword else "景点",
         region=city,
         types="风景名胜|博物馆",

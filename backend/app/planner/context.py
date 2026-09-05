@@ -57,16 +57,16 @@ class PlannerContext(BaseModel):
         return "\n".join(lines)
 
 
-def build_context(req: TripRequest) -> PlannerContext:
+async def build_context(req: TripRequest) -> PlannerContext:
     """
     编译 PlannerContext。
 
     当前阶段:景点+酒店+餐饮三类 POI 召回 + 价格填充 + 日期展开 + 天气快照。
     任何一步失败都不抛错,降级为空/默认值,PlannerContext 仍然返回。
     """
-    attractions = search_attractions(req.destination, limit=10)
-    hotels = search_hotels(req.destination, limit=10)
-    food = search_food(req.destination, keyword="", limit=30)
+    attractions = await search_attractions(req.destination, limit=10)
+    hotels = await search_hotels(req.destination, limit=10)
+    food = await search_food(req.destination, keyword="", limit=30)
 
     # L6: 给 POI 填价格(LLM 后续只能引用,不能编)
     for p in attractions:
@@ -81,7 +81,7 @@ def build_context(req: TripRequest) -> PlannerContext:
 
     # L7: 日期展开 + 天气快照
     dates = expand_dates(req.start_date, req.travel_days)
-    weather = get_weather_forecast(req.destination, dates)
+    weather = await get_weather_forecast(req.destination, dates)
 
     return PlannerContext(
         request=req,

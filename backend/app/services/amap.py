@@ -1,9 +1,11 @@
-"""高德地图 HTTP API 封装。
+"""高德地图 HTTP API 异步封装。
 
-只负责"调 HTTP + 解析 + 转 POI",不涉及业务规则。
-失败时返回空列表,不抛错(让上层降级)。
+相比 L9 的同步版:
+- httpx.AsyncClient 全程异步,无线程开销
+- cache.get/set 改为 await
+- 失败时返回空列表,不抛错(让上层降级)
 
-调用结果走 services.cache 内存缓存(TTL=1小时):
+调用结果走 Redis 缓存(TTL=1 小时,见 app/services/cache.py):
 - 同一城市+关键词的搜索结果短期不变,避免重复调用
 - 高德 QPS 限制下,缓存能显著降低调用次数
 """
@@ -22,8 +24,18 @@ BASE_URL = "https://restapi.amap.com/v3"
 
 CACHE_TTL = 3600  # 1 小时
 
+# 复用同一 httpx.AsyncClient,避免每次请求新建 TCP 连接
+_client: httpx.AsyncClient | None = None
 
-def search_poi(
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient(timeout=10.0)
+    return _client
+
+
+async def search_poi(
     keywords: str,
     region: str,
     types: str | None = None,
@@ -45,11 +57,11 @@ def search_poi(
         print("[amap] 缺少 AMAP_API_KEY")
         return []
 
-    # 缓存 key:规范化所有参数
     cache_key = f"search_poi:{region}:{keywords}:{types or ''}:{page_size}"
-    cached = cache.get(cache_key)
+    cached = await cache.get(cache_key)
     if cached is not None:
-        return cached
+        # cache 存的是 list[dict],需要重建 POI 实例
+        return [POI.model_validate(item) for item in cached]
 
     params = {
         "key": AMAP_API_KEY,
@@ -62,10 +74,9 @@ def search_poi(
         params["types"] = types
 
     try:
-        resp = httpx.get(
+        resp = await _get_client().get(
             f"{BASE_URL}/place/text",
             params=params,
-            timeout=10.0,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -73,12 +84,10 @@ def search_poi(
         print(f"[amap] HTTP 请求失败: {e}")
         return []
 
-    # 高德 status: "1" 成功, "0" 失败
     if data.get("status") != "1":
         print(f"[amap] API 返回错误: {data.get('info')}")
         return []
 
-    # 把高德 dict 列表转 POI 列表
     pois: list[POI] = []
     for item in data.get("pois", []):
         try:
@@ -86,18 +95,18 @@ def search_poi(
                 id=item["id"],
                 name=item["name"],
                 address=item.get("address", "") or item.get("pname", "") + item.get("cityname", ""),
-                location=item["location"],   # 由 POI 的 validator 解析
+                location=item["location"],
                 type=item.get("type", ""),
             )
             pois.append(poi)
         except Exception as e:
             print(f"[amap] 跳过 POI {item.get('name')}: {e}")
 
-    cache.set(cache_key, pois, ttl=CACHE_TTL)
+    await cache.set(cache_key, [p.model_dump() for p in pois], ttl=CACHE_TTL)
     return pois
 
 
-def get_weather(city: str) -> list[dict]:
+async def get_weather(city: str) -> list[dict]:
     """
     获取未来几天的天气预报(带缓存,V3 weather/weatherInfo 接口,extensions=all)。
 
@@ -108,12 +117,12 @@ def get_weather(city: str) -> list[dict]:
         return []
 
     cache_key = f"get_weather:{city}"
-    cached = cache.get(cache_key)
+    cached = await cache.get(cache_key)
     if cached is not None:
         return cached
 
     try:
-        resp = httpx.get(
+        resp = await _get_client().get(
             f"{BASE_URL}/weather/weatherInfo",
             params={
                 "key": AMAP_API_KEY,
@@ -121,7 +130,6 @@ def get_weather(city: str) -> list[dict]:
                 "extensions": "all",
                 "output": "json",
             },
-            timeout=10.0,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -138,5 +146,5 @@ def get_weather(city: str) -> list[dict]:
         return []
 
     casts = forecasts[0].get("casts", [])
-    cache.set(cache_key, casts, ttl=CACHE_TTL)
+    await cache.set(cache_key, casts, ttl=CACHE_TTL)
     return casts

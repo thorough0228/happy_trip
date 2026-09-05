@@ -147,11 +147,11 @@ const handleSubmit = async () => {
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
 
-    const plan = await planTrip(form)
-    sessionStorage.setItem('trip_plan', JSON.stringify(plan))
-    router.push({ name: 'result' })
+    // 后端立即返回 task_id,实际规划在后台跑
+    const { task_id } = await planTrip(form)
+    router.push({ name: 'result', query: { task_id } })
   } catch (e: any) {
-    alert('生成失败: ' + (e.response?.data?.detail || e.message || JSON.stringify(e)))
+    alert('创建任务失败: ' + (e.response?.data?.detail || e.message || JSON.stringify(e)))
   } finally {
     loading.value = false
   }

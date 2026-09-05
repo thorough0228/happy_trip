@@ -2,17 +2,16 @@ import json
 import os
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 load_dotenv()
 
 API_KEY = os.getenv("LLM_API_KEY")
 BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 MODEL_ID = os.getenv("LLM_MODEL_ID", "gpt-3.5-turbo")
-# thinking 模式:enabled / adaptive / disabled,空字符串表示不传
 THINKING_MODE = os.getenv("LLM_THINKING", "").strip()
 
-client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+client = AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)
 
 
 def extract_json(text: str) -> str:
@@ -69,9 +68,9 @@ def extract_json(text: str) -> str:
     return best if best else text
 
 
-def chat(messages: list[dict], temperature: float = 0.7) -> str:
+async def chat(messages: list[dict], temperature: float = 0.7) -> str:
     """
-    调用 LLM 并清洗响应,提取其中的 JSON 字符串。
+    异步调 LLM 并清洗响应,提取其中的 JSON 字符串。
 
     返回的是**纯 JSON 字符串**(不是 dict),由调用方负责解析成目标 schema。
     """
@@ -81,9 +80,8 @@ def chat(messages: list[dict], temperature: float = 0.7) -> str:
         "temperature": temperature,
     }
     if THINKING_MODE:
-        # 把 thinking 模式塞进 extra_body(MiniMax / OpenAI 兼容扩展参数)
         kwargs["extra_body"] = {"thinking": {"type": THINKING_MODE}}
 
-    response = client.chat.completions.create(**kwargs)
+    response = await client.chat.completions.create(**kwargs)
     raw_content = response.choices[0].message.content or ""
     return extract_json(raw_content)

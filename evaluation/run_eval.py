@@ -3,10 +3,15 @@
 
 读 eval_set.jsonl,对每条样本调 plan_trip,统计规则指标,输出汇总报告。
 
+L11 改造点:
+- plan_trip / build_context 改为 async,evaluate_one 改为 async,主循环用 asyncio.run
+- 启动期 init_redis()(因为 cache / progress 都要 Redis)
+
 运行:
     cd happy_trip
     python -m evaluation.run_eval
 """
+import asyncio
 import json
 import statistics
 import sys
@@ -22,6 +27,7 @@ sys.path.insert(0, str(_BACKEND_PATH))
 from pydantic import ValidationError
 
 from app.agents.planner import plan_trip
+from app.core import redis_client
 from app.models.schemas import TripPlan, TripRequest
 from app.planner.context import build_context
 from app.planner.validation import PLACEHOLDER_MEALS, validate_plan
@@ -41,7 +47,7 @@ def load_eval_set() -> list[dict[str, Any]]:
     return cases
 
 
-def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
+async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     """对单条样本跑评测,返回指标 dict。"""
     req_dict = case["request"]
     req = TripRequest(**req_dict)
@@ -65,8 +71,8 @@ def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
 
     t0 = time.time()
     try:
-        ctx = build_context(req)
-        plan = plan_trip(req)
+        ctx = await build_context(req)
+        plan = await plan_trip(req)
     except json.JSONDecodeError:
         metrics["error"] = "JSON parse failed"
         return metrics
@@ -160,7 +166,7 @@ def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     return metrics
 
 
-def main():
+async def main_async():
     cases = load_eval_set()
     print(f"加载 {len(cases)} 条评测样本\n")
 
@@ -172,7 +178,7 @@ def main():
     for i, case in enumerate(cases, 1):
         label = case.get("label", case.get("id", f"case_{i}"))
         print(f"[{i}/{len(cases)}] {label} ...", end=" ", flush=True)
-        m = evaluate_one(case)
+        m = await evaluate_one(case)
         m["id"] = case.get("id", f"case_{i}")
         m["label"] = label
         per_case.append(m)
@@ -182,7 +188,7 @@ def main():
 
         # 下一个 case 之前 sleep(避开高德 QPS)
         if i < len(cases):
-            time.sleep(INTERVAL_SEC)
+            await asyncio.sleep(INTERVAL_SEC)
 
     # 汇总
     metric_keys = [
@@ -216,6 +222,17 @@ def main():
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
         json.dump({"summary": summary, "per_case": per_case}, f, ensure_ascii=False, indent=2)
     print(f"\n详细报告写入: {REPORT_PATH}")
+
+
+def main():
+    """同步包裹:启动期 init_redis(),用 asyncio.run 跑 async 主循环,退出前 close。"""
+    async def _run():
+        await redis_client.init_redis()
+        try:
+            await main_async()
+        finally:
+            await redis_client.close_redis()
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":

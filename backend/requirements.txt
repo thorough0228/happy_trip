@@ -5,3 +5,8 @@ pydantic>=2.0.0
 pydantic-settings>=2.0.0
 
 openai
+
+# Redis 客户端 + SSE 推送(L11 异步任务改造)
+redis>=5.0
+sse-starlette>=2.0
+httpx>=0.27.0

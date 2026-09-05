@@ -15,7 +15,7 @@ DEFAULT_KEYWORDS = [
 ]
 
 
-def search_food(city: str, keyword: str = "", limit: int = 30) -> list[POI]:
+async def search_food(city: str, keyword: str = "", limit: int = 30) -> list[POI]:
     """
     搜索目的地的餐厅(多关键词合并召回)。
 
@@ -38,7 +38,7 @@ def search_food(city: str, keyword: str = "", limit: int = 30) -> list[POI]:
     all_pois: list[POI] = []
     for kw in keywords:
         try:
-            pois = search_poi(
+            pois = await search_poi(
                 keywords=kw,
                 region=city,
                 types="餐饮",
