@@ -11,7 +11,24 @@ BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 MODEL_ID = os.getenv("LLM_MODEL_ID", "gpt-3.5-turbo")
 THINKING_MODE = os.getenv("LLM_THINKING", "").strip()
 
-client = AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)
+# Lazy init:不在 import 时构造客户端,避免 .env 缺 LLM_API_KEY 时整个进程崩。
+# 延后到 chat() 第一次调用时再校验,这样 import 链路(reload / 评测脚本 / 单测)
+# 都不会因为缺 key 而失败。
+_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    """懒加载 LLM 客户端。第一次调用时校验 api_key,缺失则报错。"""
+    global _client
+    if _client is not None:
+        return _client
+    if not API_KEY:
+        raise RuntimeError(
+            "LLM_API_KEY 未配置。请在 backend/.env 里设置 "
+            "LLM_API_KEY=your_key_here,然后重启服务。"
+        )
+    _client = AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)
+    return _client
 
 
 def extract_json(text: str) -> str:
@@ -74,6 +91,8 @@ async def chat(messages: list[dict], temperature: float = 0.7) -> str:
 
     返回的是**纯 JSON 字符串**(不是 dict),由调用方负责解析成目标 schema。
     """
+    client = _get_client()
+
     kwargs = {
         "model": MODEL_ID,
         "messages": messages,
