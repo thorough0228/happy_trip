@@ -91,12 +91,16 @@ async def search_poi(
     pois: list[POI] = []
     for item in data.get("pois", []):
         try:
+            # 解析营业时间(高德 V3 place/text 在 business.opening_hours 字段)
+            # 不是所有 POI 都有,缺失为 None — Time Check 会跳过
+            opening_hours = item.get("business", {}).get("opening_hours") or None
             poi = POI(
                 id=item["id"],
                 name=item["name"],
                 address=item.get("address", "") or item.get("pname", "") + item.get("cityname", ""),
                 location=item["location"],
                 type=item.get("type", ""),
+                opening_hours=opening_hours,
             )
             pois.append(poi)
         except Exception as e:

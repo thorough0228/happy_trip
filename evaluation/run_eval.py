@@ -66,6 +66,7 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
         "hotel_nights_match",
         "attraction_count_ok",
         "route_optimized_ok",
+        "time_check_ok",
         "hard_pass",
     ]}
     metrics["error"] = ""
@@ -171,6 +172,11 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     if total_route_km > 0:
         metrics["route_optimized_ok"] = True
 
+    # Time Check:验证高德返回了至少一个 POI 的 opening_hours,Time Check 有数据可查
+    # (不是所有 POI 都有营业时间数据,None 表示高德 V3 未提供,Time Check 跳过)
+    if any(poi.opening_hours for poi in ctx.attractions):
+        metrics["time_check_ok"] = True
+
     # hard_pass = 所有硬指标都通过
     hard_keys = [
         "json_parse_ok", "schema_valid", "attraction_in_candidates",
@@ -178,6 +184,7 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
         "meal_specific_ok", "budget_arithmetic_consistent",
         "budget_within_constraint", "budget_utilization_ok", "days_count_match",
         "hotel_nights_match", "attraction_count_ok", "route_optimized_ok",
+        "time_check_ok",
     ]
     metrics["hard_pass"] = all(metrics[k] for k in hard_keys)
 
@@ -215,7 +222,7 @@ async def main_async():
         "meal_specific_ok", "budget_arithmetic_consistent",
         "budget_within_constraint", "budget_utilization_ok", "days_count_match",
         "hotel_nights_match", "attraction_count_ok", "route_optimized_ok",
-        "hard_pass",
+        "time_check_ok", "hard_pass",
     ]
     summary = {
         "total_cases": len(per_case),
