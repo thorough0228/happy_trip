@@ -15,9 +15,8 @@ class Party(BaseModel):
 
 
 class BudgetConstraint(BaseModel):
-    """预算约束"""
+    """预算约束(去掉档位,只用金额约束 LLM 给出最适配的规划)"""
     amount: float = Field(gt=0, description="总预算（元）")
-    level: Literal["economy", "standard", "premium"] = Field(description="预算档位")
 
 
 class TripRequest(BaseModel):

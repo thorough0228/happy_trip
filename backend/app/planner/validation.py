@@ -19,12 +19,11 @@ PLACEHOLDER_MEALS = {
 }
 
 
-# 预算利用率下限(按档位分级)。LLM 倾向保守出价,不加约束会远低于用户预算。
-_BUDGET_UTILIZATION_MIN = {
-    "economy": 0.50,    # 经济档可能确实花不完,放宽
-    "standard": 0.70,   # 标准档应有合理花销
-    "premium": 0.85,    # 豪华档应基本用满
-}
+# 预算利用率下限(不分档,统一 80%)。
+# 用户取消档位后,LLM 根据预算总额决定花多少钱:
+# - 不强制花满(允许经济型选择,如青旅+小馆子也能算合理)
+# - 防止偷懒出超低价行程(如预算 3000 出 1500)
+_BUDGET_UTILIZATION_MIN = 0.80
 
 
 def validate_plan(plan: TripPlan, ctx: PlannerContext) -> list[str]:
@@ -84,17 +83,15 @@ def validate_plan(plan: TripPlan, ctx: PlannerContext) -> list[str]:
                 f"预算不一致:各项加总={items_sum:.0f}, total={budget.total:.0f}, 误差={diff_ratio:.1%}"
             )
 
-    # 3. 预算利用率(防止 LLM 偷懒出低价行程)
+    # 3. 预算利用率(防止 LLM 偷懒出低价行程,统一 80% 下限)
     user_budget = ctx.request.budget_constraint.amount
-    budget_level = ctx.request.budget_constraint.level
-    min_ratio = _BUDGET_UTILIZATION_MIN.get(budget_level, 0.70)
     if user_budget > 0 and budget.total > 0:
         actual_ratio = budget.total / user_budget
-        if actual_ratio < min_ratio:
+        if actual_ratio < _BUDGET_UTILIZATION_MIN:
             errors.append(
                 f"预算利用过低:total={budget.total:.0f},"
                 f" 用户预算={user_budget:.0f},"
-                f" 利用率={actual_ratio:.0%} < {budget_level} 档下限 {min_ratio:.0%}"
+                f" 利用率={actual_ratio:.0%} < 下限 {_BUDGET_UTILIZATION_MIN:.0%}"
             )
 
     # 4. 天数匹配

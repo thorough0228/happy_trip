@@ -154,12 +154,10 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     if all(len(day.attractions) >= 1 for day in plan.days):
         metrics["attraction_count_ok"] = True
 
-    # 预算利用率(分档下限,与 validation.py 保持一致)
+    # 预算利用率(统一 80% 下限,与 validation.py 保持一致)
     user_budget = req.budget_constraint.amount
-    budget_level = req.budget_constraint.level
-    util_min = {"economy": 0.50, "standard": 0.70, "premium": 0.85}.get(budget_level, 0.70)
     if user_budget > 0 and b.total > 0:
-        if b.total / user_budget >= util_min:
+        if b.total / user_budget >= 0.80:
             metrics["budget_utilization_ok"] = True
 
     # hard_pass = 所有硬指标都通过

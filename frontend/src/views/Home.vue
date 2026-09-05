@@ -43,17 +43,17 @@
       <section class="form-section">
         <h3 class="section-title">👥 同行与预算</h3>
         <a-row :gutter="16">
-          <a-col :span="4">
+          <a-col :span="5">
             <a-form-item label="成人">
               <a-input-number v-model:value="form.party.adults" :min="1" :max="20" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :span="4">
+          <a-col :span="5">
             <a-form-item label="儿童">
               <a-input-number v-model:value="form.party.children" :min="0" :max="10" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :span="4">
+          <a-col :span="5">
             <a-form-item label="老人">
               <a-input-number v-model:value="form.party.elders" :min="0" :max="10" style="width: 100%" />
             </a-form-item>
@@ -68,18 +68,11 @@
               </a-select>
             </a-form-item>
           </a-col>
-          <a-col :span="4">
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="8">
             <a-form-item label="总预算(元)">
               <a-input-number v-model:value="form.budget_constraint.amount" :min="0" placeholder="可不填" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="4">
-            <a-form-item label="预算档位">
-              <a-select v-model:value="form.budget_constraint.level">
-                <a-select-option value="economy">经济</a-select-option>
-                <a-select-option value="standard">标准</a-select-option>
-                <a-select-option value="premium">豪华</a-select-option>
-              </a-select>
             </a-form-item>
           </a-col>
         </a-row>
@@ -231,7 +224,6 @@ const form = reactive<Omit<TripRequest, 'travel_days'> & { travel_days: number }
   },
   budget_constraint: {
     amount: 3000,
-    level: 'standard',
   },
   transportation: 'train',
   accommodation: 'hostel',
