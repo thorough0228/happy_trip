@@ -1,8 +1,7 @@
 # 负责"组装 prompt + 调 LLM + 解析 JSON + 硬规则校验 + 重试"。
-import json
 from app.models.schemas import TripRequest, TripPlan
 from app.services.llm import chat
-from app.services.progress import update_progress
+from app.services import progress
 from app.planner.context import PlannerContext, build_context
 from app.planner.validation import validate_plan
 
@@ -12,12 +11,10 @@ MAX_RETRIES = 2  # 校验失败最多重试 2 次
 def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
     """
     构造发送给 LLM 的 messages 列表。
-    包含 system 角色（角色、输出格式、约束）和 user 角色（用户需求）。
+    包含 system 角色(角色、输出格式、约束)和 user 角色(用户需求)。
     """
-    # 将日期转换为字符串（Pydantic date 会自动序列化为 ISO 格式，但用于提示词我们显式格式化）
     start_date_str = req.start_date.isoformat()
 
-    # 硬约束覆盖所有事实类型
     hard_constraint = (
         "【硬约束 - 必须严格遵守】\n"
         "1. 景点/酒店/餐厅 必须从【可用候选列表】中选择,不得编造候选中不存在的名字。\n"
@@ -44,29 +41,29 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         + hard_constraint + "\n"
         "【PlannerContext - 所有事实来源】\n"
         + ctx.summary() + "\n\n"
-        "你必须严格按以下 JSON 格式输出结果，不要包含任何额外解释、不要用 markdown 代码块包裹，只输出纯 JSON。\n"
-        "输出的 JSON 必须完全符合下面的结构：\n\n"
+        "你必须严格按以下 JSON 格式输出结果,不要包含任何额外解释、不要用 markdown 代码块包裹,只输出纯 JSON。\n"
+        "输出的 JSON 必须完全符合下面的结构:\n\n"
         "{\n"
-        "  \"title\": \"行程标题（字符串）\",\n"
-        "  \"destination\": \"目的地（字符串）\",\n"
-        "  \"date_range\": \"YYYY-MM-DD ~ YYYY-MM-DD（字符串）\",\n"
+        "  \"title\": \"行程标题(字符串)\",\n"
+        "  \"destination\": \"目的地(字符串)\",\n"
+        "  \"date_range\": \"YYYY-MM-DD ~ YYYY-MM-DD(字符串)\",\n"
         "  \"party\": {\n"
         "    \"adults\": 整数,\n"
         "    \"children\": 整数,\n"
         "    \"elders\": 整数,\n"
-        "    \"total\": 整数（自动等于三者之和）,\n"
+        "    \"total\": 整数(自动等于三者之和),\n"
         "    \"companion_type\": \"couple\" | \"family\" | \"friends\" | \"solo\"\n"
         "  },\n"
         "  \"days\": [\n"
         "    {\n"
         "      \"date\": \"YYYY-MM-DD\",\n"
-        "      \"theme\": \"主题（字符串，可为 null）\",\n"
+        "      \"theme\": \"主题(字符串,可为 null)\",\n"
         "      \"attractions\": [\n"
         "        {\n"
         "          \"name\": \"景点名\",\n"
         "          \"address\": \"地址\",\n"
-        "          \"cost\": 花费（数字，>=0）,\n"
-        "          \"notes\": \"备注（字符串，可为 null）\"\n"
+        "          \"cost\": 花费(数字,>=0),\n"
+        "          \"notes\": \"备注(字符串,可为 null)\"\n"
         "        }\n"
         "        // 可多个\n"
         "      ],\n"
@@ -78,9 +75,9 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "      \"hotel\": {\n"
         "        \"name\": \"酒店名\",\n"
         "        \"address\": \"地址\",\n"
-        "        \"cost\": 每晚费用（数字）,\n"
-        "        \"nights\": 入住晚数（整数）\n"
-        "      }  // 若当天无住宿，可为 null\n"
+        "        \"cost\": 每晚费用(数字),\n"
+        "        \"nights\": 入住晚数(整数)\n"
+        "      }  // 若当天无住宿,可为 null\n"
         "    }\n"
         "    // 天数需等于用户要求的 travel_days\n"
         "  ],\n"
@@ -89,32 +86,31 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "    \"total_hotels\": 数字,\n"
         "    \"total_meals\": 数字,\n"
         "    \"total_transportation\": 数字,\n"
-        "    \"total\": 数字（等于上述四项之和）\n"
+        "    \"total\": 数字(等于上述四项之和)\n"
         "  },\n"
         "  \"notes\": [\"贴士1\", \"贴士2\", ...]\n"
         "}\n\n"
-        "字段约束：\n"
+        "字段约束:\n"
         "- 所有数字必须 >= 0。\n"
         "- 日期格式必须为 YYYY-MM-DD。\n"
         "- 天数必须等于用户要求的 travel_days。\n"
-        "- 预算明细应合理分配，且总和不应超过用户总预算（但不必完全相等，需在合理范围内）。\n"
-        "- 住宿类型需匹配用户选择的 accommodation（酒店/民宿/青旅），交通方式需匹配 transportation。\n"
-        "- 请根据用户偏好（preferences）和负面约束（negative_constraints）调整景点、餐饮推荐。\n"
-        "- 输出必须合法 JSON，键名和嵌套结构与上述示例完全一致。"
+        "- 预算明细应合理分配,且总和不应超过用户总预算(但不必完全相等,需在合理范围内)。\n"
+        "- 住宿类型需匹配用户选择的 accommodation(酒店/民宿/青旅),交通方式需匹配 transportation。\n"
+        "- 请根据用户偏好(preferences)和负面约束(negative_constraints)调整景点、餐饮推荐。\n"
+        "- 输出必须合法 JSON,键名和嵌套结构与上述示例完全一致。"
     )
 
-    # 构造 User prompt，包含所有用户输入信息
     user_prompt = (
-        f"请为我规划一次旅行：\n"
-        f"- 目的地：{req.destination}\n"
-        f"- 出发日期：{start_date_str}\n"
-        f"- 旅行天数：{req.travel_days} 天\n"
-        f"- 人数：成人 {req.party.adults} 人，儿童 {req.party.children} 人，老人 {req.party.elders} 人（总 {req.party.total} 人），出行类型：{req.party.companion_type}\n"
-        f"- 总预算：{req.budget_constraint.amount} 元，预算档位：{req.budget_constraint.level}\n"
-        f"- 交通方式：{req.transportation}\n"
-        f"- 住宿类型：{req.accommodation}\n"
-        f"- 偏好：{', '.join(req.preferences) if req.preferences else '无特别偏好'}\n"
-        f"- 负面约束：{', '.join(req.negative_constraints) if req.negative_constraints else '无'}\n"
+        f"请为我规划一次旅行:\n"
+        f"- 目的地:{req.destination}\n"
+        f"- 出发日期:{start_date_str}\n"
+        f"- 旅行天数:{req.travel_days} 天\n"
+        f"- 人数:成人 {req.party.adults} 人,儿童 {req.party.children} 人,老人 {req.party.elders} 人(总 {req.party.total} 人),出行类型:{req.party.companion_type}\n"
+        f"- 总预算:{req.budget_constraint.amount} 元,预算档位:{req.budget_constraint.level}\n"
+        f"- 交通方式:{req.transportation}\n"
+        f"- 住宿类型:{req.accommodation}\n"
+        f"- 偏好:{', '.join(req.preferences) if req.preferences else '无特别偏好'}\n"
+        f"- 负面约束:{', '.join(req.negative_constraints) if req.negative_constraints else '无'}\n"
         "\n请严格按照上述 JSON 格式输出完整行程计划。"
     )
 
@@ -143,7 +139,7 @@ def _build_retry_messages(req: TripRequest, ctx: PlannerContext, errors: list[st
     return base
 
 
-def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
+async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
     """
     规划行程的主入口:
     1. 编译 PlannerContext
@@ -153,12 +149,12 @@ def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
 
     task_id: 可选,传入时上报进度给前端
     """
-    def report(stage: str, progress: int):
+    async def report(stage: str, progress_pct: int):
         if task_id:
-            update_progress(task_id, stage, progress)
+            await progress.update_progress(task_id, stage, progress_pct)
 
-    report("搜索景点/酒店/餐厅候选 + 获取天气...", 10)
-    ctx = build_context(req)
+    await report("搜索景点/酒店/餐厅候选 + 获取天气...", 10)
+    ctx = await build_context(req)
     messages = build_prompt(req, ctx)
 
     last_plan: TripPlan | None = None
@@ -166,16 +162,16 @@ def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
 
     for attempt in range(MAX_RETRIES + 1):
         stage = f"LLM 生成行程(第 {attempt + 1} 次)..."
-        report(stage, 30 + attempt * 20)
-        raw_text = chat(messages, temperature=0.7)
+        await report(stage, 30 + attempt * 20)
+        raw_text = await chat(messages, temperature=0.7)
 
-        report("解析 + 校验...", 35 + attempt * 20)
+        await report("解析 + 校验...", 35 + attempt * 20)
         try:
             plan = TripPlan.model_validate_json(raw_text)
             errors = validate_plan(plan, ctx)
 
             if not errors:
-                report("完成", 100)
+                await report("完成", 100)
                 _enrich_locations(plan, ctx)
                 return plan
 
@@ -189,9 +185,8 @@ def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
         if attempt < MAX_RETRIES:
             messages = _build_retry_messages(req, ctx, last_errors)
 
-    report("完成(含未修复的警告)", 100)
+    await report("完成(含未修复的警告)", 100)
     _enrich_locations(last_plan, ctx)
-    # 兜底:返回最后一次成功解析的 plan
     return last_plan
 
 
@@ -218,4 +213,3 @@ def _enrich_locations(plan, ctx) -> None:
         for meal in day.meals.values():
             if meal and meal.location is None:
                 meal.location = name_to_loc.get(meal.name)
-

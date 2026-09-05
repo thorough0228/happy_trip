@@ -1,18 +1,17 @@
+"""
+启动入口。
+
+L11 改造点:
+- 使用 lifespan 启动期校验 Redis(连接失败进程报错退出,Redis 不可用不允许降级)
+- 删除了原文件底部的旧测试 req 构造代码(已无意义)
+"""
 import uvicorn
-from app.models.schemas import TripRequest, TripPlan
 
 if __name__ == "__main__":
-    # 在 Windows 上使用 reload 需要特殊处理
-    uvicorn.run("app.api.main:app", host="0.0.0.0", port=7000, reload=True)
-    req = TripRequest(
-        destination="杭州",
-        start_date="2026-10-01",
-        travel_days=3,
-        party={"adults": 2, "children": 0, "elders": 0},
-        budget_constraint={"amount": 3000, "level": "standard"},
-        transportation="train",
-        accommodation="hotel",
-        preferences=["喜欢西湖"],
-        negative_constraints=["不吃辣"]
+    uvicorn.run(
+        "app.api.main:app",
+        host="0.0.0.0",
+        port=7000,
+        reload=True,
+        lifespan="on",
     )
-    print(req.model_dump())  # 应该输出一个 dict

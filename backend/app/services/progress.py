@@ -1,13 +1,23 @@
 """
-任务进度跟踪(内存版,简单可靠)。
+任务进度跟踪(Redis 版)。
 
-生产环境应该用 Redis,但 L9/L10 这个量级内存字典够用。
+相比原内存版:
+- 5 个函数全 async,与 FastAPI async event loop 兼容
+- 任务存为 Redis STRING(JSON 序列化),key 格式 `ht:task:{task_id}`
+- TTL 仅 create_task 设一次,update/complete 不重置(语义:600s 后自然过期)
+
+终态(done/error)任务 600s 后自动消失,与原内存版一致。
 """
-import threading
+import json
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
+
+from app.core.redis_client import get_redis
+
+KEY_PREFIX = "ht:task:"
+TASK_TTL = 600  # 秒
 
 
 @dataclass
@@ -19,62 +29,79 @@ class TaskProgress:
     result: Any = None               # TripPlan (status=done 时)
     error: str | None = None
     created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TaskProgress":
+        return cls(**data)
 
 
-_tasks: dict[str, TaskProgress] = {}
-_lock = threading.Lock()
-
-# 任务过期时间(秒),超过会被清理
-TASK_TTL = 600
+def _key(task_id: str) -> str:
+    return f"{KEY_PREFIX}{task_id}"
 
 
-def create_task() -> TaskProgress:
+async def create_task() -> TaskProgress:
+    """创建任务,初始状态 pending,TTL 从此刻开始 600s。"""
     task_id = uuid.uuid4().hex[:8]
     task = TaskProgress(task_id=task_id)
-    with _lock:
-        _cleanup_expired()
-        _tasks[task_id] = task
+    redis = get_redis()
+    await redis.set(
+        _key(task_id),
+        json.dumps(task.to_dict(), ensure_ascii=False, default=str),
+        ex=TASK_TTL,
+    )
     return task
 
 
-def update_progress(task_id: str, stage: str, progress: int) -> None:
-    with _lock:
-        if task_id in _tasks:
-            t = _tasks[task_id]
-            t.status = "running"
-            t.stage = stage
-            t.progress = progress
+async def update_progress(task_id: str, stage: str, progress: int) -> None:
+    """更新进度(不重置 TTL)。"""
+    redis = get_redis()
+    raw = await redis.get(_key(task_id))
+    if raw is None:
+        return
+    data = json.loads(raw)
+    data["status"] = "running"
+    data["stage"] = stage
+    data["progress"] = progress
+    data["updated_at"] = time.time()
+    await redis.set(_key(task_id), json.dumps(data, ensure_ascii=False, default=str))
 
 
-def complete_task(task_id: str, result: Any) -> None:
-    with _lock:
-        if task_id in _tasks:
-            t = _tasks[task_id]
-            t.status = "done"
-            t.stage = "完成"
-            t.progress = 100
-            t.result = result
+async def complete_task(task_id: str, result: Any) -> None:
+    """标记任务完成(不重置 TTL)。"""
+    redis = get_redis()
+    raw = await redis.get(_key(task_id))
+    if raw is None:
+        return
+    data = json.loads(raw)
+    data["status"] = "done"
+    data["stage"] = "完成"
+    data["progress"] = 100
+    data["result"] = result
+    data["updated_at"] = time.time()
+    await redis.set(_key(task_id), json.dumps(data, ensure_ascii=False, default=str))
 
 
-def fail_task(task_id: str, error: str) -> None:
-    with _lock:
-        if task_id in _tasks:
-            t = _tasks[task_id]
-            t.status = "error"
-            t.error = error
+async def fail_task(task_id: str, error: str) -> None:
+    """标记任务失败(不重置 TTL)。"""
+    redis = get_redis()
+    raw = await redis.get(_key(task_id))
+    if raw is None:
+        return
+    data = json.loads(raw)
+    data["status"] = "error"
+    data["error"] = error
+    data["updated_at"] = time.time()
+    await redis.set(_key(task_id), json.dumps(data, ensure_ascii=False, default=str))
 
 
-def get_task(task_id: str) -> TaskProgress | None:
-    with _lock:
-        return _tasks.get(task_id)
-
-
-def _cleanup_expired() -> None:
-    """清理超过 TTL 的已完成任务。"""
-    now = time.time()
-    expired = [
-        tid for tid, t in _tasks.items()
-        if now - t.created_at > TASK_TTL and t.status in ("done", "error")
-    ]
-    for tid in expired:
-        _tasks.pop(tid, None)
+async def get_task(task_id: str) -> TaskProgress | None:
+    """读取任务;不存在或已过期返回 None。"""
+    redis = get_redis()
+    raw = await redis.get(_key(task_id))
+    if raw is None:
+        return None
+    return TaskProgress.from_dict(json.loads(raw))

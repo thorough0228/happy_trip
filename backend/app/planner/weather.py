@@ -5,14 +5,14 @@ from app.models.schemas import WeatherDay
 from app.services.amap import get_weather
 
 
-def get_weather_forecast(city: str, dates: list[date]) -> list[WeatherDay]:
+async def get_weather_forecast(city: str, dates: list[date]) -> list[WeatherDay]:
     """
     获取行程日期的天气预报。
 
     高德 V3 通常返回未来 3 天预报,超过 3 天的行程,超出部分用 unknown 占位。
     失败时整段降级为 unknown,不抛错。
     """
-    raw_casts = get_weather(city)
+    raw_casts = await get_weather(city)
 
     if not raw_casts:
         # 高德失败,整段降级
