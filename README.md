@@ -81,7 +81,6 @@ _enrich_locations                          前端 Result.vue 渲染行程
 (回填坐标,防止 LLM 编经纬度)                DayMap.vue 高德地图
 ```
 
-```
 | 层        | 技术 |
 | -------- | --- |
 | 后端框架     | FastAPI 0.115+ + Uvicorn + asyncio |
@@ -93,7 +92,6 @@ _enrich_locations                          前端 Result.vue 渲染行程
 | 前端      | Vue 3 + TypeScript + Vite + Ant Design Vue |
 | 前端地图    | 高德 Web JS API(动态加载) |
 | 评估脚本    | Python(规则评测,15 项硬指标) |
-```
 
 ---
 
