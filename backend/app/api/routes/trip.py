@@ -9,12 +9,13 @@ import asyncio
 import json
 from typing import AsyncIterator
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.planner import plan_trip
 from app.models.schemas import TripRequest
 from app.services import progress
+from app.services.amap import get_walking_route
 
 router = APIRouter(prefix="/trip", tags=["trip"])
 
@@ -107,3 +108,30 @@ async def _event_generator(task_id: str) -> AsyncIterator[dict]:
             return
 
         await asyncio.sleep(poll_interval)
+
+
+@router.get("/route/walking")
+async def walking_route(
+    origin_lng: float,
+    origin_lat: float,
+    dest_lng: float,
+    dest_lat: float,
+):
+    """
+    返回两 POI 间的步行路线。
+
+    Query:
+      - origin_lng / origin_lat: 起点 (lng, lat)
+      - dest_lng / dest_lat: 终点 (lng, lat)
+
+    Response:
+      - coords: [[lng, lat], ...] 真实路网 polyline 坐标
+      - distance: 总距离(米,高德原始)
+      - duration: 步行时长(秒,高德原始)
+    """
+    origin = (origin_lng, origin_lat)
+    destination = (dest_lng, dest_lat)
+    result = await get_walking_route(origin, destination)
+    if result is None:
+        raise HTTPException(status_code=502, detail="步行路线规划失败")
+    return result

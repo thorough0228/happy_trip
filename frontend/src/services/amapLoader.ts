@@ -29,7 +29,7 @@ export function loadAMap(): Promise<any> {
       return
     }
     const script = document.createElement('script')
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.Marker,AMap.InfoWindow`
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.Marker,AMap.InfoWindow,AMap.Polyline`
     script.async = true
     script.onload = () => resolve(window.AMap)
     script.onerror = () => reject(new Error('高德地图 SDK 加载失败'))

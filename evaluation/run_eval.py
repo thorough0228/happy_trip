@@ -65,6 +65,7 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
         "days_count_match",
         "hotel_nights_match",
         "attraction_count_ok",
+        "route_optimized_ok",
         "hard_pass",
     ]}
     metrics["error"] = ""
@@ -160,13 +161,23 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
         if b.total / user_budget >= 0.80:
             metrics["budget_utilization_ok"] = True
 
+    # 路径优化:验证后端确实跑了 optimize_day(至少有一条 dist_from_prev_km > 0)
+    total_route_km = sum(
+        a.dist_from_prev_km or 0
+        for day in plan.days
+        for a in day.attractions
+        if a.dist_from_prev_km is not None
+    )
+    if total_route_km > 0:
+        metrics["route_optimized_ok"] = True
+
     # hard_pass = 所有硬指标都通过
     hard_keys = [
         "json_parse_ok", "schema_valid", "attraction_in_candidates",
         "hotel_in_candidates", "meal_in_candidates", "meal_grounding_ok",
         "meal_specific_ok", "budget_arithmetic_consistent",
         "budget_within_constraint", "budget_utilization_ok", "days_count_match",
-        "hotel_nights_match", "attraction_count_ok",
+        "hotel_nights_match", "attraction_count_ok", "route_optimized_ok",
     ]
     metrics["hard_pass"] = all(metrics[k] for k in hard_keys)
 
@@ -203,7 +214,8 @@ async def main_async():
         "hotel_in_candidates", "meal_in_candidates", "meal_grounding_ok",
         "meal_specific_ok", "budget_arithmetic_consistent",
         "budget_within_constraint", "budget_utilization_ok", "days_count_match",
-        "hotel_nights_match", "attraction_count_ok", "hard_pass",
+        "hotel_nights_match", "attraction_count_ok", "route_optimized_ok",
+        "hard_pass",
     ]
     summary = {
         "total_cases": len(per_case),

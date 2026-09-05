@@ -29,6 +29,7 @@ export interface Attraction {
   location: [number, number] | null
   cost: number
   notes: string | null
+  dist_from_prev_km: number | null
 }
 
 export interface Meal {

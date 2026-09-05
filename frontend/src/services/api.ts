@@ -29,6 +29,29 @@ export async function healthCheck(): Promise<string> {
 }
 
 /**
+ * 调后端拿两 POI 间的步行路线 polyline。
+ * 返回 {coords, distance, duration};后端失败或网络错误返回 null。
+ */
+export async function getWalkingRoute(
+  origin: [number, number],
+  dest: [number, number],
+): Promise<{ coords: [number, number][]; distance: number; duration: number } | null> {
+  try {
+    const resp = await api.get('/api/trip/route/walking', {
+      params: {
+        origin_lng: origin[0],
+        origin_lat: origin[1],
+        dest_lng: dest[0],
+        dest_lat: dest[1],
+      },
+    })
+    return resp.data
+  } catch {
+    return null
+  }
+}
+
+/**
  * SSE 流客户端:把 EventSource 包装成 AsyncIterable<TaskProgress>。
  *
  * 后端推送三种 event:

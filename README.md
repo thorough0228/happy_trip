@@ -26,12 +26,12 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 大多数 LLM 旅行助手是"凭印象编造行程"的赌博 — 景点可能不存在,价格随便估,酒店名是幻觉。Happy Trip 把一次旅行拆成可追溯、可校验、可评测的过程:
 
 - 🧠 **PlannerContext 协议** — 外部事实(高德 POI / 天气 / 票价)由程序收集并打包,LLM 只在事实范围内编排,事实不会被"创作"
-- 🛡️ **双轨防御** — prompt 软约束 + 13 项硬规则校验 + 反思重试循环,既靠 LLM 自觉也靠程序强制
+- 🛡️ **双轨防御** — prompt 软约束 + 14 项硬规则校验 + 反思重试循环,既靠 LLM 自觉也靠程序强制
 - 💰 **预算账本** — 酒店估价、票价、规则餐饮全部由代码算,LLM 不允许自报数字,杜绝价格幻觉
 - 🌧️ **天气感知行程** — Intent 阶段拉高德实时天气,雨天引导 LLM 优先安排室内景点
 - ⚡ **异步任务 + SSE 推送** — `POST /api/trip/plan` 立即返回 task_id,前端订阅 SSE 拿实时进度和最终结果,不再 30~90 秒干等
 - 🗄️ **Redis 后端(可选)** — 高德 POI/天气缓存 + 任务状态走 Redis;未配置或不可用时静默降级,主流程不受影响
-- 🧪 **可量化质量** — 20 条冻结样本、13 项硬规则、45-55% hard_pass 稳态,跑多次取平均,质量可追溯
+- 🧪 **可量化质量** — 20 条冻结样本、14 项硬规则、45-55% hard_pass 稳态,跑多次取平均,质量可追溯
 
 所有景点与餐厅数据均来自**高德真实 POI**;所有价格来自**静态票价表 + 规则估价**;LLM 输出的每一项都能在 PlannerContext 里找到出处。
 
@@ -92,7 +92,7 @@ _enrich_locations                          前端 Result.vue 渲染行程
 | 异步推送    | sse-starlette `EventSourceResponse` |
 | 前端      | Vue 3 + TypeScript + Vite + Ant Design Vue |
 | 前端地图    | 高德 Web JS API(动态加载) |
-| 评估脚本    | Python(规则评测,13 项硬指标) |
+| 评估脚本    | Python(规则评测,14 项硬指标) |
 ```
 
 ---
@@ -106,7 +106,7 @@ _enrich_locations                          前端 Result.vue 渲染行程
 
 **2. 双轨防御 — 软约束 + 硬规则 + Reviewer 软提示**
 - **prompt 软约束**:`build_prompt` 的 system 部分枚举 9 条硬性指令(候选约束、价格约束、多样性、餐饮 grounding 等),引导 LLM 自觉
-- **13 项硬规则**:`validate_plan` 跑候选约束、预算一致性、预算利用率、天数匹配、餐厅多样性等确定性检查
+- **14 项硬规则**:`validate_plan` 跑候选约束、预算一致性、预算利用率、路径优化、天数匹配、餐厅多样性等确定性检查
 - **Reviewer 软提示(替代反思重试)**:业务校验不通过**不再让 LLM 重生成**,而是由 `agents/reviewer.py` 单独调一次 LLM,基于错误列表生成 2-4 条中文警告追加到 `TripPlan.notes`。这样省 token(避免 1 次失败触发 2-3 次 LLM 重生成),且保留可观测性(用户能看到具体哪里不准确)
 - **Pydantic schema 失败仍重试**:JSON 损坏 / 字段缺失是致命错,保留 1 次重试
 
@@ -141,6 +141,10 @@ reasoning 模型(如 M3)的响应混杂大量 thinking 块,里面可能有伪 JS
 
 **10. 坐标回填防 LLM 幻觉**
 LLM 输出 `TripPlan` 时**不**输出经纬度(怕它编),后端 `_enrich_locations` 用 name 映射回填 PlannerContext 里 POI 的真实坐标,专门给前端 `DayMap` 用。
+
+**11. 路径优化(FloatTrip 风格)**
+单天景点暴力枚举全排列,haversine 计算总路程,选最短排列重写 attractions 顺序,重算每个节点的 `dist_from_prev_km`。保证 `best_km ≤ original_km`(原始排列是候选项之一)。Meals/hotel 保持原位不动(happy_trip 没有 period 时段概念)。复杂度 N!,实际行程 2-5 个景点完全可接受。
+前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
 
 ---
 
@@ -264,8 +268,10 @@ happy_trip/
 │   │   │   ├── food.py              # 餐饮召回(多关键词桶,async)
 │   │   │   ├── weather.py           # 天气快照(async)
 │   │   │   ├── dates.py             # 日期展开
+│   │   │   ├── geo.py               # haversine 球面距离工具
+│   │   │   ├── optimize.py          # 单天路径优化(暴力枚举 + haversine)
 │   │   │   ├── pricing.py           # 票价表 + 酒店/餐饮规则估价
-│   │   │   └── validation.py        # 13 项硬规则校验
+│   │   │   └── validation.py        # 14 项硬规则校验
 │   │   └── services/
 │   │       ├── amap.py              # 高德 V3 HTTP(async,httpx.AsyncClient)
 │   │       ├── llm.py               # AsyncOpenAI + JSON 提取
@@ -317,12 +323,12 @@ happy_trip/
                        │
             ┌──────────┴──────────┐
             ▼                     ▼
-    13 项硬规则(G1-G13)      候选约束 / 预算算术 / 利用率
+    14 项硬规则(G1-G14)      候选约束 / 预算算术 / 利用率 / 路径优化
     (确定性,零 LLM 成本)      / 餐厅多样性
 ```
 
 - **输入冻结**:20 条样本覆盖 11 个城市、3 种人数类型、确定可复现
-- **纯确定性评分**:13 项硬规则全部由 Python 代码执行,不依赖 LLM 评委,跑一次评测零额外 API 成本
+- **纯确定性评分**:14 项硬规则全部由 Python 代码执行,不依赖 LLM 评委,跑一次评测零额外 API 成本
 - **业务校验不重试**:`hard_pass` 反映的是 LLM 一次输出的合规度(plan 仍可能带 reviewer 软警告)。多次跑取平均以减少 LLM 随机性影响
 
 ### 核心指标
@@ -341,7 +347,8 @@ happy_trip/
 | `days_count_match` | `days` 数组长度 = `travel_days` |
 | `hotel_nights_match` | 酒店晚数合计 = `travel_days - 1` |
 | `attraction_count_ok` | 每天至少 1 个景点 |
-| `hard_pass` | 上面 13 项硬指标全部通过 |
+| `route_optimized_ok` | 至少一条 `dist_from_prev_km > 0`(后端确实跑了路径优化) |
+| `hard_pass` | 上面 14 项硬指标全部通过 |
 
 ### 快速运行
 
