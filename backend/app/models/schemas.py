@@ -40,6 +40,7 @@ class Attraction(BaseModel):
     location: tuple[float, float] | None = Field(default=None, description="经纬度 [lng, lat]")
     cost: float = Field(ge=0, description="花费（元）")
     notes: str | None = Field(default=None, description="备注")
+    dist_from_prev_km: float | None = Field(default=None, description="到上一个 POI 的 haversine 距离(km),第一个景点为 None")
 
 
 class Meal(BaseModel):

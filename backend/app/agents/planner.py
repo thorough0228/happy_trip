@@ -4,6 +4,7 @@ from app.models.schemas import TripRequest, TripPlan
 from app.services.llm import chat
 from app.services import progress
 from app.planner.context import PlannerContext, build_context
+from app.planner.optimize import optimize_day
 from app.planner.validation import validate_plan
 
 # LLM 主循环最多跑 2 次(初始 1 次 + 业务校验失败后重试 1 次)。
@@ -234,6 +235,16 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
 
     await report("🎉 完成", 100)
     _enrich_locations(plan, ctx)
+
+    # 路径优化:对每个 day 暴力枚举景点全排列,重算 dist_from_prev_km
+    # 在 _enrich_locations 之后调,保证 location 已填,优化算法才能算距离
+    total_original_km = 0.0
+    for day in plan.days:
+        optimized_day, original_km = optimize_day(day)
+        # 原地写回(optimize_day 内部已经修改了 dist_from_prev_km)
+        day.attractions = optimized_day.attractions
+        total_original_km += original_km
+
     return plan
 
 

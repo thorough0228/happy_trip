@@ -148,3 +148,73 @@ async def get_weather(city: str) -> list[dict]:
     casts = forecasts[0].get("casts", [])
     await cache.set(cache_key, casts, ttl=CACHE_TTL)
     return casts
+
+
+async def get_walking_route(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+) -> dict | None:
+    """
+    调用高德 V3 direction/walking,返回两点步行路线。
+
+    入参:origin / destination 都是 (lng, lat) 元组(与 POI.location 一致)。
+    出参:`{coords, distance, duration}` dict。
+        - coords: `[[lng, lat], ...]` 已解析的 polyline 坐标序列
+        - distance / duration: 高德原始返回值(米 / 秒)
+    失败或无路径返回 None。
+    """
+    if not AMAP_API_KEY:
+        print("[amap] 缺少 AMAP_API_KEY")
+        return None
+
+    # 缓存 key:坐标对排序后拼成 hash(避免 A→B 和 B→A 重复存)
+    a, b = sorted([origin, destination])
+    cache_key = f"walking_route:{a[0]:.5f},{a[1]:.5f}|{b[0]:.5f},{b[1]:.5f}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    params = {
+        "key": AMAP_API_KEY,
+        "origin": f"{origin[0]},{origin[1]}",
+        "destination": f"{destination[0]},{destination[1]}",
+        "output": "json",
+    }
+    try:
+        resp = await _get_client().get(f"{BASE_URL}/direction/walking", params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"[amap] walking route 请求失败: {e}")
+        return None
+
+    if data.get("status") != "1":
+        print(f"[amap] walking route API 返回错误: {data.get('info')}")
+        return None
+
+    paths = data.get("route", {}).get("paths", [])
+    if not paths:
+        return None
+    path = paths[0]
+
+    # 解析所有 step 的 polyline → [[lng, lat], ...]
+    coords: list[list[float]] = []
+    for step in path.get("steps", []):
+        for pair in step.get("polyline", "").split(";"):
+            pair = pair.strip()
+            if not pair:
+                continue
+            parts = pair.split(",")
+            if len(parts) == 2:
+                try:
+                    coords.append([float(parts[0]), float(parts[1])])
+                except ValueError:
+                    pass
+
+    result = {
+        "coords": coords,
+        "distance": path.get("distance"),
+        "duration": path.get("duration"),
+    }
+    await cache.set(cache_key, result, ttl=CACHE_TTL * 24)  # 路线 24h 缓存(POI 不变)
+    return result

@@ -26,6 +26,9 @@
                 <strong>{{ item.name }}</strong>
                 <a-tag v-if="item.cost === 0" color="green" style="margin-left: 8px">免费</a-tag>
                 <a-tag v-else color="orange" style="margin-left: 8px">¥{{ item.cost }}</a-tag>
+                <a-tag v-if="item.dist_from_prev_km !== null && item.dist_from_prev_km !== undefined" color="blue" style="margin-left: 8px">
+                  距上一段 ~{{ item.dist_from_prev_km }}km
+                </a-tag>
               </template>
               <template #description>
                 <div>{{ item.address }}</div>

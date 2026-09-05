@@ -11,6 +11,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { loadAMap } from '../services/amapLoader'
+import { getWalkingRoute } from '../services/api'
 import type { Day } from '../types'
 
 const props = defineProps<{ day: Day }>()
@@ -19,6 +20,7 @@ const mapDiv = ref<HTMLElement | null>(null)
 const loadError = ref<string>('')
 let mapInstance: any = null
 let markers: any[] = []
+let polylines: any[] = []
 
 const COLORS = {
   attraction: '#1677ff',  // 蓝
@@ -33,6 +35,7 @@ async function renderMap() {
     const AMap = await loadAMap()
     initMap(AMap)
     addMarkers(AMap)
+    await renderRouteSegments(AMap)
   } catch (e: any) {
     loadError.value = e.message || String(e)
   }
@@ -42,6 +45,8 @@ function initMap(AMap: any) {
   // 清理旧 markers
   markers.forEach(m => m.setMap(null))
   markers = []
+  polylines.forEach(p => p.setMap(null))
+  polylines = []
 
   if (mapInstance) {
     mapInstance.destroy()
@@ -142,6 +147,48 @@ function addMarkers(AMap: any) {
       `,
     })
     marker.on('click', () => infoWindow.open(mapInstance, marker.getPosition()))
+  }
+}
+
+async function renderRouteSegments(AMap: any) {
+  // 景点顺序连线:默认画直线(蓝色),异步调 walking API 替换为真实路网(绿色)
+  const atts = props.day.attractions.filter(a => a.location)
+  if (atts.length < 2) return
+
+  // 直线兜底(蓝色)
+  const linePath = atts.map(a => a.location!)
+  const fallback = new AMap.Polyline({
+    path: linePath,
+    strokeColor: '#1677ff',
+    strokeWeight: 3,
+    strokeOpacity: 0.8,
+    strokeStyle: 'solid',
+  })
+  fallback.setMap(mapInstance)
+  polylines.push(fallback)
+
+  // 异步获取真实路网替换
+  const realCoords: [number, number][][] = []
+  for (let i = 1; i < atts.length; i++) {
+    const result = await getWalkingRoute(atts[i - 1].location!, atts[i].location!)
+    if (result && result.coords && result.coords.length > 0) {
+      realCoords.push(result.coords as [number, number][])
+    } else {
+      realCoords.push([atts[i - 1].location!, atts[i].location!])  // fallback 到直线
+    }
+  }
+
+  if (realCoords.length > 0) {
+    const real = new AMap.Polyline({
+      path: realCoords.flat(),
+      strokeColor: '#52c41a',
+      strokeWeight: 4,
+      strokeOpacity: 0.9,
+      strokeStyle: 'solid',
+    })
+    real.setMap(mapInstance)
+    fallback.setMap(null)
+    polylines.push(real)
   }
 }
 
