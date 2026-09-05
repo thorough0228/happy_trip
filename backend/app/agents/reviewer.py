@@ -1,51 +1,59 @@
 """
-Reviewer Agent — 业务校验软提示。
+Reviewer Agent — 业务校验连续失败后提出改进方案,让 Planner 基于方案再生成。
 
-调用一次 LLM,基于 validate_plan 的 errors 列表 + TripPlan + PlannerContext,
-生成简短中文警告(2-4 条),作为 plan.notes 追加,提示用户哪些项目可能不准确。
+调用时机:plan_trip 主循环连续 2 次 LLM 生成仍未通过业务校验时。
 
-关键设计:
-- 独立于 planner,不进入 planner 重试循环,避免浪费 token
-- prompt 极简,只看 errors + plan + ctx 概要,要求输出简短中文数组
-- 失败时降级为 errors 原文(不抛错,不影响 plan 返回)
+输入:
+- req: 用户原始 TripRequest(保留偏好、主题等)
+- ctx: PlannerContext(事实源,候选 POI 池)
+- last_plan: 上一次 LLM 生成的草稿(可能有违规字段)
+- errors: validate_plan 给出的错误列表
+
+输出:
+- list[str] 改进建议,每条针对一个错误,说明"应替换为 ctx 中的哪个具体 POI"
+
+reviewer 不生成 plan,只提建议。Plan 由 Planner 拿到建议后再次生成。
 """
+import json
+from app.models.schemas import TripRequest
 from app.models.schemas import TripPlan
 from app.planner.context import PlannerContext
 from app.services.llm import chat
 
 
-REVIEWER_SYSTEM_PROMPT = """你是行程质量审核员。任务:基于下面提供的【校验错误】和【行程计划】,生成 2-4 条简短中文警告,提示用户哪些地方可能不准确。
+REVIEWER_SYSTEM_PROMPT = """你是行程质量审查员。Planner 之前的两次尝试都未通过业务校验。
+任务:**不要生成完整行程**,只针对每个错误提出具体的改进方案(基于候选池)。
 
 要求:
-- 每条警告一行,不超过 30 字
-- 用用户能看懂的语言,不要用"违反规则""违规"等批判词
-- 重点说"这个景点不在候选中,建议你确认"这类可操作建议
-- 输出纯 JSON 数组: ["警告1", "警告2", ...]
-- 不要重复输入,不要解释"""
+1. 对每条错误,给出 1-2 句具体修复方向,引用 ctx 候选池中真实存在的 POI 名
+2. 输出分点(每条一行),便于 Planner 解析执行
+3. 不要解释错误本身,只说"应该改成什么"
+4. 不要写 JSON,纯文本分点输出
+
+示例格式:
+- 景点'X'不在候选中,替换为 ctx 中的'Y'(同类景点)
+- 餐厅'Z'在第 2 天和第 3 天重复,改成 ctx 中的'W'
+- 预算加总不对,景点合计 X 元 / 酒店 X 元 / 餐饮 X 元 / 交通 X 元,调整后 total 应为 X 元"""
 
 
-def _build_reviewer_messages(plan: TripPlan, errors: list[str], ctx: PlannerContext) -> list[dict]:
+def _build_reviewer_messages(
+    req: TripRequest,
+    ctx: PlannerContext,
+    last_plan: TripPlan,
+    errors: list[str],
+) -> list[dict]:
     """构造 reviewer 的 messages。"""
-    # 摘要信息(避免塞整个 plan,省 token)
-    plan_summary = {
-        "title": plan.title,
-        "destination": plan.destination,
-        "days_count": len(plan.days),
-        "budget_total": plan.budget.total,
-    }
-    ctx_summary = {
-        "attractions_count": len(ctx.attractions),
-        "hotels_count": len(ctx.hotels),
-        "food_count": len(ctx.food),
-    }
     user_prompt = (
-        "【校验错误】\n"
+        "【校验错误列表】(逐一针对)\n"
         + "\n".join(f"- {e}" for e in errors)
-        + "\n\n【行程概要】\n"
-        + str(plan_summary)
-        + "\n\n【候选池规模】\n"
-        + str(ctx_summary)
-        + "\n\n请输出 JSON 数组格式的警告(2-4 条):"
+        + "\n\n【用户核心约束(不要破坏)】\n"
+        f"- 目的地:{req.destination}\n"
+        f"- 旅行天数:{req.travel_days}\n"
+        f"- 主题/偏好:{', '.join(req.preferences) if req.preferences else '无'}\n"
+        f"- 负面约束:{', '.join(req.negative_constraints) if req.negative_constraints else '无'}\n"
+        "\n【PlannerContext — 候选池,改进方案必须引用这里的事实】\n"
+        + ctx.summary()
+        + "\n\n请只输出改进方案(分点,每条 1-2 行,基于 ctx):"
     )
     return [
         {"role": "system", "content": REVIEWER_SYSTEM_PROMPT},
@@ -53,24 +61,44 @@ def _build_reviewer_messages(plan: TripPlan, errors: list[str], ctx: PlannerCont
     ]
 
 
-async def review_warnings(plan: TripPlan, errors: list[str], ctx: PlannerContext) -> list[str]:
+async def review_propose(
+    req: TripRequest,
+    ctx: PlannerContext,
+    last_plan: TripPlan,
+    errors: list[str],
+) -> list[str]:
     """
-    调一次 LLM 生成软警告。失败时降级为 errors 原文,不抛错。
+    输出针对每个错误的具体改进方案。
 
     Returns:
-        中文警告列表,作为 plan.notes 追加。
+        改进方案列表,每个 string 一条建议。
+        reviewer 失败时降级为 errors 原文(确保 Planner 至少收到反馈)。
     """
-    messages = _build_reviewer_messages(plan, errors, ctx)
+    messages = _build_reviewer_messages(req, ctx, last_plan, errors)
     try:
         raw = await chat(messages, temperature=0.3)
-        # reviewer 输出也是 JSON,需要解析
-        import json
+    except Exception as e:
+        print(f"[reviewer] 调用失败: {e},降级为 errors 原文")
+        return [f"- {e}" for e in errors]
 
-        warnings = json.loads(raw)
-        if isinstance(warnings, list):
-            return [str(w) for w in warnings if w]
-        # 如果 LLM 返回的不是 list,降级处理
-        return [f"行程有以下项目可能不准确,请确认: {'; '.join(errors[:3])}"]
-    except Exception:
-        # 降级:把 errors 原文拼成一句话,保证至少有提示
-        return [f"行程有以下项目可能不准确,请确认: {'; '.join(errors[:3])}"]
+    # 解析:按行切分,过滤 markdown 列表前缀
+    suggestions: list[str] = []
+    for line in raw.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # 去掉常见列表前缀(- * • 数字.)
+        for prefix in ["- ", "* ", "• ", "· "]:
+            if line.startswith(prefix):
+                line = line[len(prefix):]
+                break
+        else:
+            # 处理 "1. xxx" 形式
+            if len(line) > 3 and line[0].isdigit() and line[1] in ".)、":
+                line = line[2:].lstrip()
+
+        if line:
+            suggestions.append(line)
+
+    # 兜底:解析不到任何行就用 errors
+    return suggestions if suggestions else [f"- {e}" for e in errors]
