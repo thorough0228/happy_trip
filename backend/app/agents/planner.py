@@ -1,5 +1,6 @@
-# 负责"组装 prompt + 调 LLM + 解析 JSON + 业务校验 + reviewer 提案"。
+# 负责"组装 prompt + 调 LLM + 解析 JSON + 业务校验 + Time Check + reviewer 提案"。
 from app.agents.reviewer import review_propose
+from app.agents.time_check import time_check
 from app.models.schemas import TripRequest, TripPlan
 from app.services.llm import chat
 from app.services import progress
@@ -195,10 +196,20 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
 
         errors = validate_plan(plan, ctx)
         if not errors:
+            # 业务校验通过,再跑 Time Check 验证开放时间(共用重试 budget)
+            await report("🕒 检查景点开放时间...", 75)
+            tc_result = await time_check(plan, ctx)
+            if not tc_result.approved:
+                # 把 Time Check 冲突折进 errors,共用主循环重试 budget
+                errors = [f"开放时间冲突:{c}" for c in tc_result.conflicts]
+                last_errors = errors
+                print(f"[planner] 第{attempt+1}次 Time Check 失败: {len(tc_result.conflicts)} 个冲突")
+        if not errors:
             # 成功
             break
-        last_errors = errors
-        print(f"[planner] 第{attempt+1}次业务校验失败: {len(errors)} 个错误")
+        if not last_errors or last_errors == errors:
+            last_errors = errors
+        print(f"[planner] 第{attempt+1}次校验失败: {len(errors)} 个错误")
         messages = _build_retry_messages(req, ctx, errors)
 
     if plan is None:
