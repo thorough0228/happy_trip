@@ -131,35 +131,63 @@
       </section>
 
       <a-form-item>
-        <a-button type="primary" html-type="submit" :loading="loading" size="large" block>
+        <a-button type="primary" html-type="submit" :loading="loading" :disabled="loading" size="large" block>
           生成行程
         </a-button>
       </a-form-item>
     </a-form>
+
+    <!-- 进度区:贴在"生成行程"按钮下方,留在 Home 页,完成后再跳 Result -->
+    <div v-if="showProgress" class="progress-section">
+      <a-progress
+        :percent="progressPct / 100"
+        :status="errorMsg ? 'exception' : 'active'"
+        :stroke-color="errorMsg ? undefined : '#1677ff'"
+      />
+      <div class="progress-stage">
+        <span v-if="errorMsg" style="color: #ff4d4f">❌ {{ errorMsg }}</span>
+        <span v-else style="color: #555">⏳ {{ progressStage || '准备中...' }}</span>
+      </div>
+      <a-button v-if="errorMsg" type="primary" size="small" @click="resetProgress" style="margin-top: 8px">
+        重试
+      </a-button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import dayjs, { Dayjs } from 'dayjs'
 import { useRouter } from 'vue-router'
-import { planTrip } from '../services/api'
+import { planTrip, streamTask } from '../services/api'
 import type { TripRequest } from '../types'
 
 const router = useRouter()
 const loading = ref(false)
+
+// 进度状态
+const progressStage = ref('')
+const progressPct = ref(0)
+const errorMsg = ref('')
+
+const showProgress = computed(() => loading.value || !!errorMsg.value)
+
+function resetProgress() {
+  progressStage.value = ''
+  progressPct.value = 0
+  errorMsg.value = ''
+  loading.value = false
+}
 
 // ---- 日期:开始 + 结束(独立 picker,联动禁用)----
 const startDate = ref<string | null>(dayjs().add(1, 'day').format('YYYY-MM-DD'))
 const endDate = ref<string | null>(dayjs().add(3, 'day').format('YYYY-MM-DD'))
 
 function disabledStartDate(current: Dayjs) {
-  // 不能选今天之前
   return current && current < dayjs().startOf('day')
 }
 
 function disabledEndDate(current: Dayjs) {
-  // 不能选今天之前,也不能早于开始日期
   const today = dayjs().startOf('day')
   if (current && current < today) return true
   if (startDate.value) {
@@ -182,7 +210,6 @@ function validateEndDate() {
   return Promise.resolve()
 }
 
-// ---- 旅行偏好候选(checkbox grid)----
 const preferenceOptions = [
   '历史文化', '自然风光', '美食探店',
   '购物商圈', '艺术展览', '休闲放松',
@@ -220,21 +247,40 @@ const handleSubmit = async () => {
     return
   }
   loading.value = true
+  errorMsg.value = ''
+  progressStage.value = ''
+  progressPct.value = 0
+
   try {
     form.start_date = startDate.value
     form.travel_days = dayjs(endDate.value).diff(dayjs(startDate.value), 'day') + 1
-
     form.negative_constraints = negativeText.value
       .split(/[,，]/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
-    // preferences 来自 checkbox group,已是 array
 
+    // 创建任务
     const { task_id } = await planTrip(form as TripRequest)
-    router.push({ name: 'result', query: { task_id } })
+
+    // 订阅 SSE 流,进度保持在 Home 页
+    for await (const ev of streamTask(task_id)) {
+      progressPct.value = ev.progress
+      progressStage.value = ev.stage
+
+      if (ev.status === 'done' && ev.result) {
+        sessionStorage.setItem('trip_plan', JSON.stringify(ev.result))
+        loading.value = false
+        router.push({ name: 'result' })
+        return
+      }
+      if (ev.status === 'error') {
+        errorMsg.value = ev.error || '任务失败'
+        loading.value = false
+        return
+      }
+    }
   } catch (e: any) {
-    alert('创建任务失败: ' + (e.response?.data?.detail || e.message || JSON.stringify(e)))
-  } finally {
+    errorMsg.value = '创建任务失败: ' + (e.response?.data?.detail || e.message || String(e))
     loading.value = false
   }
 }
@@ -258,5 +304,15 @@ const handleSubmit = async () => {
   font-weight: 600;
   margin-bottom: 16px;
   color: #333;
+}
+.progress-section {
+  margin-top: 24px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 6px;
+}
+.progress-stage {
+  margin-top: 8px;
+  font-size: 14px;
 }
 </style>
