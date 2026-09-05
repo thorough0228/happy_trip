@@ -1,11 +1,15 @@
-# 负责"组装 prompt + 调 LLM + 解析 JSON + 硬规则校验 + 重试"。
+# 负责"组装 prompt + 调 LLM + 解析 JSON + 业务校验 + reviewer 软提示"。
+from app.agents.reviewer import review_warnings
 from app.models.schemas import TripRequest, TripPlan
 from app.services.llm import chat
 from app.services import progress
 from app.planner.context import PlannerContext, build_context
 from app.planner.validation import validate_plan
 
-MAX_RETRIES = 2  # 校验失败最多重试 2 次
+# Pydantic schema 校验失败最多重试 1 次(JSON 损坏/字段缺失是致命错)。
+# 业务校验(候选/预算/多样性)不再重试,而是 reviewer agent 一次性软提示,
+# 避免浪费 token —— 详见 agents/reviewer.py。
+PYDANTIC_MAX_RETRIES = 1
 
 
 def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
@@ -143,9 +147,9 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
     """
     规划行程的主入口:
     1. 编译 PlannerContext
-    2. 调 LLM → 解析 JSON → 硬规则校验
-    3. 校验失败:带错误反馈重试,最多 MAX_RETRIES 次
-    4. 全部失败:返回最后一次结果(带 warning)
+    2. 调 LLM → 解析 JSON(Pydantic schema 失败最多重试 1 次)
+    3. 业务校验(候选/预算/多样性)**不重试**,不通过则调 reviewer 生成软警告追加到 notes
+    4. 返回 TripPlan
 
     task_id: 可选,传入时上报进度给前端
     """
@@ -157,37 +161,40 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
     ctx = await build_context(req)
     messages = build_prompt(req, ctx)
 
-    last_plan: TripPlan | None = None
-    last_errors: list[str] = []
-
-    for attempt in range(MAX_RETRIES + 1):
-        stage = f"LLM 生成行程(第 {attempt + 1} 次)..."
-        await report(stage, 30 + attempt * 20)
+    # ---- Pydantic 重试循环(只处理 JSON 损坏 / schema 字段缺失)----
+    plan: TripPlan | None = None
+    last_pydantic_err: str = ""
+    for attempt in range(PYDANTIC_MAX_RETRIES + 1):
+        await report(f"LLM 生成行程(第 {attempt + 1} 次)...", 40)
         raw_text = await chat(messages, temperature=0.7)
 
-        await report("解析 + 校验...", 35 + attempt * 20)
+        await report("解析 JSON...", 60)
         try:
             plan = TripPlan.model_validate_json(raw_text)
-            errors = validate_plan(plan, ctx)
-
-            if not errors:
-                await report("完成", 100)
-                _enrich_locations(plan, ctx)
-                return plan
-
-            last_plan = plan
-            last_errors = errors
-            print(f"[planner] 第{attempt+1}次校验失败: {len(errors)} 个错误")
+            break  # 解析成功,跳出 Pydantic 重试循环
         except Exception as e:
-            last_errors = [f"JSON 解析失败: {e}"]
-            print(f"[planner] 第{attempt+1}次 JSON 解析失败: {e}")
+            last_pydantic_err = str(e)
+            print(f"[planner] 第{attempt+1}次 Pydantic 解析失败: {e}")
+            if attempt < PYDANTIC_MAX_RETRIES:
+                messages = _build_retry_messages(req, ctx, [f"JSON 解析失败: {e}"])
 
-        if attempt < MAX_RETRIES:
-            messages = _build_retry_messages(req, ctx, last_errors)
+    if plan is None:
+        # Pydantic 全部失败,这种 JSON 损坏一般是 LLM 严重异常,直接抛错给上层
+        raise ValueError(
+            f"Pydantic schema 解析失败(已重试 {PYDANTIC_MAX_RETRIES + 1} 次): {last_pydantic_err}"
+        )
 
-    await report("完成(含未修复的警告)", 100)
-    _enrich_locations(last_plan, ctx)
-    return last_plan
+    # ---- 业务校验(不重试,不通过走 reviewer 软提示)----
+    errors = validate_plan(plan, ctx)
+    if errors:
+        await report("Reviewer 生成软警告...", 80)
+        warnings = await review_warnings(plan, errors, ctx)
+        plan.notes = list(plan.notes) + warnings
+        print(f"[planner] 业务校验 {len(errors)} 个错误,reviewer 生成 {len(warnings)} 条警告")
+
+    await report("完成", 100)
+    _enrich_locations(plan, ctx)
+    return plan
 
 
 def _enrich_locations(plan, ctx) -> None:

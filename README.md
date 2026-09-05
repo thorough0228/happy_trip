@@ -102,15 +102,16 @@ _enrich_locations                          前端 Result.vue 渲染行程
 ## 🔑 设计亮点
 
 **1. PlannerContext 协议 — 候选池封闭世界约束**
-所有景点 / 酒店 / 餐厅必须来自高德 API 搜索结果,LLM 不得凭空生成名字。`build_context()` 一次召回三类 POI + 价格填充 + 日期展开 + 天气快照,打包成 `PlannerContext`,LLM 只能在 ctx 范围内编排。`validate_plan` 强制检查每一项 `name` 是否在 ctx 的 `attractions` / `hotels` / `food` 集合里,不在则打回重生成。
+所有景点 / 酒店 / 餐厅必须来自高德 API 搜索结果,LLM 不得凭空生成名字。`build_context()` 一次召回三类 POI + 价格填充 + 日期展开 + 天气快照,打包成 `PlannerContext`,LLM 只能在 ctx 范围内编排。`validate_plan` 强制检查每一项 `name` 是否在 ctx 的 `attractions` / `hotels` / `food` 集合里,不在则交给 reviewer 软提示。
 
-**2. 双轨防御 — 软约束 + 硬规则 + 反思重试**
+**2. 双轨防御 — 软约束 + 硬规则 + Reviewer 软提示**
 - **prompt 软约束**:`build_prompt` 的 system 部分枚举 9 条硬性指令(候选约束、价格约束、多样性、餐饮 grounding 等),引导 LLM 自觉
 - **12 项硬规则**:`validate_plan` 跑候选约束、预算一致性、天数匹配、餐厅多样性等确定性检查
-- **反思重试**:校验失败时把错误列表追加为新的 user 消息,让 LLM 看到"上次错在哪"再重生成,最多 3 次
+- **Reviewer 软提示(替代反思重试)**:业务校验不通过**不再让 LLM 重生成**,而是由 `agents/reviewer.py` 单独调一次 LLM,基于错误列表生成 2-4 条中文警告追加到 `TripPlan.notes`。这样省 token(避免 1 次失败触发 2-3 次 LLM 重生成),且保留可观测性(用户能看到具体哪里不准确)
+- **Pydantic schema 失败仍重试**:JSON 损坏 / 字段缺失是致命错,保留 1 次重试
 
 **3. Plan-and-Execute + 轻量 Reflexion — 不依赖 Agent 框架**
-没用 LangGraph / ReAct / AutoGPT。旅行规划工具调用固定(POI / 天气 / 票价),程序决定调什么,LLM 决定怎么编排。一次外部数据收集 + LLM 一次输出完整 JSON + 校验重试循环,代码量小、行为可控、出问题易定位。
+没用 LangGraph / ReAct / AutoGPT。旅行规划工具调用固定(POI / 天气 / 票价),程序决定调什么,LLM 决定怎么编排。一次外部数据收集 + LLM 一次输出完整 JSON + Reviewer 软提示,代码量小、行为可控、省 token。
 
 **4. 预算账本 — 价格不让 LLM 编**
 LLM 经常幻觉价格。Happy Trip 强制:
@@ -315,7 +316,7 @@ happy_trip/
 
 - **输入冻结**:20 条样本覆盖 11 个城市、3 种人数类型、3 种预算档位,确定可复现
 - **纯确定性评分**:12 项硬规则全部由 Python 代码执行,不依赖 LLM 评委,跑一次评测零额外 API 成本
-- **多轮跑取平均**:`hard_pass` 稳态 45-55%,单次跑受 LLM 随机性影响,跑多次取平均更准
+- **业务校验不重试**:`hard_pass` 反映的是 LLM 一次输出的合规度(plan 仍可能带 reviewer 软警告)。多次跑取平均以减少 LLM 随机性影响
 
 ### 核心指标
 
