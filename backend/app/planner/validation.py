@@ -5,6 +5,7 @@ LLM 通过 schema 校验 ≠ 输出合法。LLM 可能违反业务规则:
 - 编了候选外的景点/酒店/餐厅
 - 编了"附近餐厅/当地小吃"这类占位词
 - 预算明细加总对不上 total
+- 预算远低于用户预期(花得太少)
 - 景点天数对不上 travel_days
 """
 from app.models.schemas import TripPlan
@@ -15,6 +16,14 @@ from app.planner.context import PlannerContext
 PLACEHOLDER_MEALS = {
     "附近餐厅", "当地小吃", "酒店晚餐", "酒店早餐", "无", "不适用", "/",
     "nearby restaurant", "local snack", "hotel restaurant",
+}
+
+
+# 预算利用率下限(按档位分级)。LLM 倾向保守出价,不加约束会远低于用户预算。
+_BUDGET_UTILIZATION_MIN = {
+    "economy": 0.50,    # 经济档可能确实花不完,放宽
+    "standard": 0.70,   # 标准档应有合理花销
+    "premium": 0.85,    # 豪华档应基本用满
 }
 
 
@@ -75,10 +84,23 @@ def validate_plan(plan: TripPlan, ctx: PlannerContext) -> list[str]:
                 f"预算不一致:各项加总={items_sum:.0f}, total={budget.total:.0f}, 误差={diff_ratio:.1%}"
             )
 
-    # 3. 天数匹配
+    # 3. 预算利用率(防止 LLM 偷懒出低价行程)
+    user_budget = ctx.request.budget_constraint.amount
+    budget_level = ctx.request.budget_constraint.level
+    min_ratio = _BUDGET_UTILIZATION_MIN.get(budget_level, 0.70)
+    if user_budget > 0 and budget.total > 0:
+        actual_ratio = budget.total / user_budget
+        if actual_ratio < min_ratio:
+            errors.append(
+                f"预算利用过低:total={budget.total:.0f},"
+                f" 用户预算={user_budget:.0f},"
+                f" 利用率={actual_ratio:.0%} < {budget_level} 档下限 {min_ratio:.0%}"
+            )
+
+    # 4. 天数匹配
     # 注意:这一项与 TripRequest 比对,plan 没有 request 引用,需要在 plan_trip 里拦截
 
-    # 4. 多样性:同一餐厅不得在多餐重复出现
+    # 5. 多样性:同一餐厅不得在多餐重复出现
     seen_meal: dict[str, str] = {}  # name -> 第一次出现的位置
     for i, day in enumerate(plan.days):
         for meal_type, meal in day.meals.items():
