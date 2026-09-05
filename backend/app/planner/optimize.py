@@ -1,22 +1,34 @@
 """
 单天路线优化(简化版)。
 
-- 暴力枚举 attractions 全排列,haversine 计算总路程,选最短排列
-- 重排 + 重算每个 attraction.dist_from_prev_km
-- meals / hotel / period 时段 保持原位不动(系统没有 period 概念)
-- 保证 best_km ≤ original_km(原始排列是候选项之一,不会越优化越差)
+自适应算法:
+- N ≤ BRUTE_FORCE_MAX_N (7):暴力枚举全排列,精确最优(N! ≤ 5040,~100ms 内)
+- N > 7:2-opt 局部搜索 + 多起点(restarts 个随机起点 + 原始起点)
+  保证 best ≤ original,O(N² × restarts),~10ms
 
-复杂度 N!,实际行程 2-5 个景点完全可接受。
+暴力枚举只在 N 小时用(实际行程 2-5 个景点常见),避免 N! 爆炸。
+2-opt 是经典 TSP 启发式,从随机起点出发迭代 2-edge swap,质量足够好。
 """
+import random
 from itertools import permutations
 
 from app.models.schemas import Day
 from app.planner.geo import haversine_km
 
+# N > 7 时,N! 超过 5040,单次 2-opt 优势明显;N ≤ 7 时暴力枚举保证精确最优
+BRUTE_FORCE_MAX_N = 7
+
+# 2-opt 多起点次数。随机起点越多越接近最优,但计算量线性增加。
+# N > 7 时,N=8 时 20 次够,N=10+ 时可能需要 50+。这里固定 20,平衡质量与速度。
+TWO_OPT_RESTARTS = 20
+
+# 2-opt 单起点最大迭代轮数,防止极端情况下死循环(基本不会触发,但兜底)
+TWO_OPT_MAX_ITERS = 50
+
 
 def optimize_day(day: Day) -> tuple[Day, float]:
     """
-    优化单天景点顺序。
+    优化单天景点顺序。自适应选择暴力枚举或 2-opt。
 
     Returns:
         (优化后的 Day, 原始总 km — 仅用于评测对照,不写入 plan)
@@ -28,16 +40,12 @@ def optimize_day(day: Day) -> tuple[Day, float]:
     locations = [a.location for a in atts]
     original_km = _path_km(locations)
 
-    # 暴力枚举所有排列,选最短(haversine 总距)
-    best_perm = list(atts)
-    best_km = original_km
-    for perm in permutations(atts):
-        km = _path_km([a.location for a in perm])
-        if km < best_km - 1e-9:
-            best_km = km
-            best_perm = list(perm)
+    if len(atts) <= BRUTE_FORCE_MAX_N:
+        best_perm = _brute_force(atts)
+    else:
+        best_perm = _two_opt_multi(atts)
 
-    # 重算每个景点的 dist_from_prev_km
+    optimized_km = _path_km([a.location for a in best_perm])
     _recompute_dists(best_perm)
 
     # 构造新 Day(保持其他字段,attractions 替换为最优排列)
@@ -49,6 +57,75 @@ def optimize_day(day: Day) -> tuple[Day, float]:
         meals=day.meals,
         hotel=day.hotel,
     ), original_km
+
+
+def _brute_force(atts: list) -> list:
+    """暴力枚举所有排列,选 haversine 总距最短的(N ≤ 7 时使用)。"""
+    original_km = _path_km([a.location for a in atts])
+    best_perm = list(atts)
+    best_km = original_km
+    for perm in permutations(atts):
+        km = _path_km([a.location for a in perm])
+        if km < best_km - 1e-9:
+            best_km = km
+            best_perm = list(perm)
+    return best_perm
+
+
+def _two_opt(atts: list, max_iters: int = TWO_OPT_MAX_ITERS) -> list:
+    """
+    单起点 2-opt 局部搜索。返回局部最优排列(可能不是全局最优)。
+
+    算法:重复检查所有 (i, j) 对(i < j),如果翻转 atts[i+1..j+1] 能缩短总距就接受。
+    直到一轮无改进或达到 max_iters。
+    """
+    current = list(atts)
+    if len(current) < 4:
+        # 2-opt 需要至少 4 个点才能做 2-edge swap
+        return current
+
+    best_km = _path_km([a.location for a in current])
+    improved = True
+    iters = 0
+
+    while improved and iters < max_iters:
+        improved = False
+        iters += 1
+        for i in range(len(current) - 1):
+            for j in range(i + 2, len(current)):
+                # 2-opt:翻转 [i+1, j+1] 段
+                candidate = current[: i + 1] + list(reversed(current[i + 1 : j + 1])) + current[j + 1 :]
+                cand_km = _path_km([a.location for a in candidate])
+                if cand_km < best_km - 1e-9:
+                    current = candidate
+                    best_km = cand_km
+                    improved = True
+
+    return current
+
+
+def _two_opt_multi(atts: list, restarts: int = TWO_OPT_RESTARTS) -> list:
+    """
+    多起点 2-opt。从原始顺序 + restarts 个随机顺序出发,选最优结果。
+
+    理由:2-opt 是局部搜索,容易陷局部最优。多起点可跳出局部最优,
+    逼近全局最优。restarts 越大越接近最优,O(N² × restarts) 越大。
+    """
+    # 起点 1:原始顺序(保证 best ≤ original)
+    best = _two_opt(atts)
+    best_km = _path_km([a.location for a in best])
+
+    # 起点 2..N:随机顺序
+    for _ in range(restarts):
+        random_start = list(atts)
+        random.shuffle(random_start)
+        candidate = _two_opt(random_start)
+        cand_km = _path_km([a.location for a in candidate])
+        if cand_km < best_km - 1e-9:
+            best = candidate
+            best_km = cand_km
+
+    return best
 
 
 def _path_km(locations: list[tuple[float, float] | None]) -> float:
