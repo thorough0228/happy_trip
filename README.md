@@ -30,7 +30,7 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 - 💰 **预算账本** — 酒店估价、票价、规则餐饮全部由代码算,LLM 不允许自报数字,杜绝价格幻觉
 - 🌧️ **天气感知行程** — Intent 阶段拉高德实时天气,雨天引导 LLM 优先安排室内景点
 - ⚡ **异步任务 + SSE 推送** — `POST /api/trip/plan` 立即返回 task_id,前端订阅 SSE 拿实时进度和最终结果,不再 30~90 秒干等
-- 🗄️ **Redis 后端** — 高德 POI/天气缓存 + 任务状态全部走 Redis,重启不丢、可水平扩展
+- 🗄️ **Redis 后端(可选)** — 高德 POI/天气缓存 + 任务状态走 Redis;未配置或不可用时静默降级,主流程不受影响
 - 🧪 **可量化质量** — 20 条冻结样本、12 项硬规则、45-55% hard_pass 稳态,跑多次取平均,质量可追溯
 
 所有景点与餐厅数据均来自**高德真实 POI**;所有价格来自**静态票价表 + 规则估价**;LLM 输出的每一项都能在 PlannerContext 里找到出处。
@@ -127,10 +127,11 @@ LLM 只能引用候选 POI 的 `cost` 字段,不允许自报数字。`budget_ari
 `POST /api/trip/plan` 在 `BackgroundTasks` 里跑 `plan_trip`,立即返回 `{task_id}`。前端用 `EventSource` 订阅 `GET /api/trip/stream/{task_id}`,服务端 0.5s 轮询 Redis 推 `progress` 事件(stage + 0~100),终态推 `done`(完整 TripPlan)或 `failed`(错误信息)后关闭流。EventSource 自带断线重连,客户端在终态主动 `source.close()` 终止重连。
 **避坑**:自定义事件名用 `progress` / `done` / `failed` 而非 `error`,因为 EventSource 的 `error` 既是自定义事件名也是浏览器原生连接错误事件名,会冲突。
 
-**7. Redis 后端 — 缓存 + 任务状态**
+**7. Redis 后端 — 缓存 + 任务状态(可选,优雅降级)**
 - `services/cache.py`:高德 POI / 天气结果存 Redis(key `ht:cache:*`),TTL 1h,JSON 序列化。`stats()` 用 `scan_iter` 避免 `KEYS *` 阻塞。
-- `services/progress.py`:任务状态存 Redis STRING(JSON,key `ht:task:{task_id}`),`create_task` 时一次性 `SET ... EX 600`,后续 update/complete 不重置 TTL,语义与原内存版"完成后 600s 过期"一致。
-- **启动期硬失败**:`lifespan` 阶段 `await redis.ping()`,失败 `RuntimeError` 让 uvicorn 退出。不允许降级到内存 dict — 任务状态是 SSE 客户端订阅的唯一标识,降级会让后端重启后客户端拿到幽灵 task。
+- `services/progress.py`:任务状态存 Redis STRING(JSON,key `ht:task:{task_id}`),`create_task` 时一次性 `SET ... EX 600`,后续 update/complete 不重置 TTL。
+- **Redis 不可用时静默降级**:`REDIS_URL` 未配置 / ping 失败时,`cache.py` 所有操作透传(`get` 返回 None,`set` / `clear` no-op),`progress.py` 降级到模块内内存 dict(`_memory_tasks`,带 asyncio.Lock 保护)。整个降级无任何副作用,**不影响主流程稳定性** — 只是重复请求会每次重新查高德,且后端重启后内存版 task 丢失(SSE 流拿到 `failed: task expired` 后前端跳回首页)。
+- **为什么不完全 no-op**:SSE 客户端订阅的 task 必须有存储,完全透传会让整个异步任务机制失效。降级到内存 dict 是最小可用方案。
 
 **8. 多关键词餐饮召回**
 高德餐饮 POI 在中型城市候选池偏小(丽江、大理 meal_in_candidates 通过率约 70%)。`search_food` 用 4 个默认桶(`餐厅` / `美食` / `本地特色` / `小吃`)分别搜索,合并去重,比单关键词召回多 2-3 倍候选。
@@ -154,9 +155,13 @@ git clone https://github.com/thorough0228/happy_trip.git
 cd happy_trip
 ```
 
-### 2. 启动 Redis(L11+ 必需)
+### 2. (可选)启动 Redis
 
-启动期会 `redis.ping()` 校验,不可用则 uvicorn 报错退出。
+Redis 是**可选依赖** — 启动期 `redis.ping()` 失败时静默降级,主流程照常运行:
+- `cache.py` 透传(get 永远返回 None,set / clear / stats no-op),重复请求每次重新查高德
+- `progress.py` 降级到模块内内存 dict,SSE 流仍能跑,但后端重启后 task 丢失
+
+如果想用上缓存和跨重启的 task 跟踪,启动 Redis:
 
 ```bash
 # Docker(推荐)
@@ -165,6 +170,8 @@ docker run -d --name happy-trip-redis -p 6379:6379 redis:7-alpine
 # 或本地
 redis-server
 ```
+
+不启动也完全可以正常使用 — 启动日志会显示 `[redis] REDIS_URL 未配置,跳过 Redis(降级为内存 / 透传)` 或 `[redis] 连接失败,降级为内存 / 透传`。
 
 ### 3. 配置环境变量
 
@@ -185,8 +192,8 @@ LLM_THINKING=disabled  # M3 支持 enabled/disabled,M2.x 系列关不掉
 # 高德地图 API Key(必填)
 AMAP_API_KEY=your_amap_key
 
-# Redis(必填,L11+)
-REDIS_URL=redis://localhost:6379/0
+# Redis(可选,留空则降级为内存 / 透传)
+# REDIS_URL=redis://localhost:6379/0
 ```
 
 ```bash
@@ -240,7 +247,7 @@ happy_trip/
 ├── backend/                         # 后端(FastAPI 异步应用)
 │   ├── app/
 │   │   ├── core/                    # 基础设施层
-│   │   │   └── redis_client.py      # Redis 单例 + lifespan 启动期 ping
+│   │   │   └── redis_client.py      # Redis 单例(可选)+ lifespan 启动期 ping(失败降级)
 │   │   ├── agents/
 │   │   │   └── planner.py           # Plan-and-Execute + Reflexion 主循环
 │   │   ├── api/
@@ -262,8 +269,8 @@ happy_trip/
 │   │   └── services/
 │   │       ├── amap.py              # 高德 V3 HTTP(async,httpx.AsyncClient)
 │   │       ├── llm.py               # AsyncOpenAI + JSON 提取
-│   │       ├── cache.py             # Redis 通用缓存(`ht:cache:` 前缀)
-│   │       └── progress.py          # Redis 任务状态(`ht:task:` 前缀,600s TTL)
+│   │       ├── cache.py             # Redis 通用缓存(`ht:cache:` 前缀,不可用时透传)
+│   │       └── progress.py          # Redis 任务状态(`ht:task:` 前缀,600s TTL,不可用时降级内存)
 │   ├── run.py                       # uvicorn 启动入口(lifespan=on)
 │   ├── requirements.txt
 │   ├── .env.example
@@ -351,11 +358,11 @@ python -m evaluation.run_eval
 
 - **中型城市 POI 候选不足**:丽江、大理等城市的餐饮 POI 候选池较小,`meal_in_candidates` 通过率约 70%
 - **LLM thinking 关闭对 M3 部分生效**:响应时间从 30s 降到 ~18s,但完全关闭依赖 minimax 服务端支持
-- **Redis 单点**:当前部署假设单 Redis 实例,生产环境需要主从 / Sentinel / Cluster 配合
+- **Redis 不可用时降级为内存版 task dict**:后端重启后 task 丢失,SSE 流拿到 `failed: task expired` 后前端跳回首页;重启前已完成的任务不受影响
 
 ### 后续优化方向
 
-- [ ] 多 Redis 部署支持(主从 / Sentinel)
+- [ ] Redis 持久化任务跟踪(当前 Redis 不可用时内存版 task 重启丢失)
 - [ ] OTA 酒店实时价格接入(Amadeus / Expedia)
 - [ ] 路线时间真实计算(高德路线 API)
 - [ ] DPO 后训练对齐偏好
