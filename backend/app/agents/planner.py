@@ -227,15 +227,10 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
 
     # 路径优化:对每个 day 暴力枚举景点全排列,重算 dist_from_prev_km
     # 在 _enrich_locations 之后调,保证 location 已填,优化算法才能算距离
-    total_original_km = 0.0
     for day in plan.days:
-        optimized_day, original_km = optimize_day(day)
-        # 写回优化结果:attractions + 时段切分点(否则 split1/split2 永远是 schema 默认值 0)
+        optimized_day, _ = optimize_day(day)
+        # 写回优化结果(dist_from_prev_km 已在优化时填好)
         day.attractions = optimized_day.attractions
-        day.split1 = optimized_day.split1
-        day.split2 = optimized_day.split2
-        # dist_from_prev_km 已在 optimized_day.attractions[i] 里原地修改
-        total_original_km += original_km
 
     return plan
 
