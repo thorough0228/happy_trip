@@ -55,9 +55,6 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
         "json_parse_ok",
         "schema_valid",
         "attraction_in_candidates",
-        "budget_arithmetic_consistent",
-        "budget_within_constraint",
-        "budget_utilization_ok",
         "days_count_match",
         "attraction_count_ok",
         "route_optimized_ok",
@@ -96,16 +93,6 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
         else:
             metrics["attraction_in_candidates"] = True
 
-    # 预算一致性(简化版:只有 total_attractions 一项)
-    b = plan.budget
-    if b.total_attractions > 0:
-        if abs(b.total - b.total_attractions) / b.total_attractions <= 0.05:
-            metrics["budget_arithmetic_consistent"] = True
-
-    # 预算不超
-    if b.total <= req.budget_constraint.amount:
-        metrics["budget_within_constraint"] = True
-
     # 天数匹配
     if len(plan.days) == req.travel_days:
         metrics["days_count_match"] = True
@@ -113,12 +100,6 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     # 每天至少 1 个景点
     if all(len(day.attractions) >= 1 for day in plan.days):
         metrics["attraction_count_ok"] = True
-
-    # 预算利用率(统一 80% 下限,与 validation.py 保持一致)
-    user_budget = req.budget_constraint.amount
-    if user_budget > 0 and b.total > 0:
-        if b.total / user_budget >= 0.80:
-            metrics["budget_utilization_ok"] = True
 
     # 路径优化:验证后端确实跑了 optimize_day(至少有一条 dist_from_prev_km > 0)
     total_route_km = sum(
@@ -138,8 +119,7 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     # hard_pass = 所有硬指标都通过
     hard_keys = [
         "json_parse_ok", "schema_valid", "attraction_in_candidates",
-        "budget_arithmetic_consistent", "budget_within_constraint",
-        "budget_utilization_ok", "days_count_match", "attraction_count_ok",
+        "days_count_match", "attraction_count_ok",
         "route_optimized_ok", "time_check_ok",
     ]
     metrics["hard_pass"] = all(metrics[k] for k in hard_keys)
@@ -174,8 +154,7 @@ async def main_async():
     # 汇总
     metric_keys = [
         "json_parse_ok", "schema_valid", "attraction_in_candidates",
-        "budget_arithmetic_consistent", "budget_within_constraint",
-        "budget_utilization_ok", "days_count_match", "attraction_count_ok",
+        "days_count_match", "attraction_count_ok",
         "route_optimized_ok", "time_check_ok", "hard_pass",
     ]
     summary = {

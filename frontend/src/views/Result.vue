@@ -57,14 +57,6 @@
       <DayMap :day="day" />
     </a-card>
 
-    <!-- 预算 -->
-    <a-card title="预算总览" style="margin-bottom: 16px">
-      <a-row :gutter="16">
-        <a-col :span="12"><a-statistic title="景点门票总额" :value="plan.budget.total_attractions" prefix="¥" /></a-col>
-        <a-col :span="12"><a-statistic title="总计" :value="plan.budget.total" prefix="¥" :value-style="{ color: '#1677ff', fontSize: '24px' }" /></a-col>
-      </a-row>
-    </a-card>
-
     <!-- 贴士 -->
     <a-card title="实用贴士" v-if="plan.notes.length > 0">
       <a-list :data-source="plan.notes" size="small">

@@ -2,7 +2,7 @@
 Time Check Agent — 校验行程日期 vs 景点开放时间冲突。
 
 职责分离:
-- reviewer: 候选约束、预算、餐厅多样性、预算利用率
+- reviewer: 候选约束、景点多样性
 - time_check: 开放时间、闭馆日(只做时间相关)
 
 CoT 推理:对每个 attraction 逐个检查"该 POI 在当前 Day.date 是否开放",

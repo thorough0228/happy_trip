@@ -26,13 +26,8 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "2. 选定后,name/address 必须原样复制候选,不得修改或编造。\n"
         "3. 候选列表外的名字,只能通过 notes 提及,不得放进 attractions 数组。\n"
         "4. 如果候选为空,可基于真实存在的知名地点生成,但要在 notes 里说明'非候选'。\n"
-        "5. 预算总额不得超过用户提供的总预算。\n"
-        "6. 【价格约束】价格必须使用候选 POI 的 cost 字段,不得自行估算或编造(免费则 0)。\n"
-        "7. budget.total_attractions 必须等于 attractions 各 cost 之和(±5%)。\n"
-        "8. 【多样性约束 -】同一景点不得在同一天重复出现(改道/换角度不算)。\n"
-        "9. 【预算利用率 - 防 LLM 偷懒】budget.total_attractions 应至少达到用户预算的 80%,\n"
-        "    不应远低于用户预期(LLM 倾向保守出低价)。\n"
-        "    在景点门票档次上合理分配,让总成本贴近用户预算,但不必花满。\n"
+        "5. 【价格约束】价格必须使用候选 POI 的 cost 字段,不得自行估算或编造(免费则 0)。\n"
+        "6. 【多样性约束】同一景点不得在同一天重复出现(改道/换角度不算)。\n"
     )
 
     system_prompt = (
@@ -72,10 +67,6 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "    }\n"
         "    // 天数需等于用户要求的 travel_days\n"
         "  ],\n"
-        "  \"budget\": {\n"
-        "    \"total_attractions\": 数字(景点门票总额),\n"
-        "    \"total\": 数字(等于 total_attractions)\n"
-        "  },\n"
         "  \"notes\": [\"贴士1\", \"贴士2\", ...]\n"
         "}\n\n"
         "字段约束:\n"
@@ -83,9 +74,8 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "- 日期格式必须为 YYYY-MM-DD。\n"
         "- 天数必须等于用户要求的 travel_days。\n"
         "- attractions 数量参考 LLM 自定(每天 2-6 个常见),后端会自动按 haversine 最短路径重排。\n"
-        "- budget.total_attractions 应在用户预算的 80% 以上(用足预算)。\n"
         "- hotel_area_hint 是自然语言建议,不是候选池中的具体酒店;用户自己根据建议订房。\n"
-        "- 请根据用户偏好(preferences)和负面约束(negative_constraints)调整景点、餐饮推荐。\n"
+        "- 请根据用户偏好(preferences)和负面约束(negative_constraints)调整景点推荐。\n"
         "- 输出必须合法 JSON,键名和嵌套结构与上述示例完全一致。"
     )
 
@@ -95,7 +85,6 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         f"- 出发日期:{start_date_str}\n"
         f"- 旅行天数:{req.travel_days} 天\n"
         f"- 人数:成人 {req.party.adults} 人,儿童 {req.party.children} 人,老人 {req.party.elders} 人(总 {req.party.total} 人),出行类型:{req.party.companion_type}\n"
-        f"- 总预算:{req.budget_constraint.amount} 元\n"
         f"- 偏好:{', '.join(req.preferences) if req.preferences else '无特别偏好'}\n"
         f"- 负面约束:{', '.join(req.negative_constraints) if req.negative_constraints else '无'}\n"
         "\n请严格按照上述 JSON 格式输出完整行程计划。"

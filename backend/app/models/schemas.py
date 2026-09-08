@@ -14,18 +14,12 @@ class Party(BaseModel):
         return self.adults + self.children + self.elders
 
 
-class BudgetConstraint(BaseModel):
-    """预算约束(去掉档位,只用金额约束 LLM 给出最适配的规划)"""
-    amount: float = Field(gt=0, description="总预算（元）")
-
-
 class TripRequest(BaseModel):
-    """用户输入的完整请求(简化版:无 transportation/accommodation)"""
+    """用户输入的完整请求(简化版:无 transportation/accommodation/budget)"""
     destination: str = Field(min_length=1, description="目的地")
     start_date: date = Field(description="出发日期")
     travel_days: int = Field(ge=1, le=30, description="旅行天数（1-30）")
     party: Party = Field(description="人数细节")
-    budget_constraint: BudgetConstraint = Field(description="预算约束")
     preferences: list[str] = Field(default=[], description="正向偏好标签")
     negative_constraints: list[str] = Field(default=[], description="负向约束标签")
 
@@ -49,12 +43,6 @@ class Day(BaseModel):
     hotel_area_hint: str | None = Field(default=None, description="酒店区域建议(LLM 生成,自然语言,如'春熙路/太古里附近,出行方便')")
 
 
-class Budget(BaseModel):
-    """预算总账"""
-    total_attractions: float = Field(ge=0, description="景点门票总额")
-    total: float = Field(ge=0, description="总花费（= total_attractions）")
-
-
 class TripPlan(BaseModel):
     """LLM 输出的完整行程计划"""
     title: str = Field(min_length=1, description="行程标题")
@@ -62,7 +50,6 @@ class TripPlan(BaseModel):
     date_range: str = Field(description="日期范围，如 '2026-10-01 ~ 2026-10-05'")
     party: Party = Field(description="人数信息回显")
     days: list[Day] = Field(default=[], description="每日行程列表")
-    budget: Budget = Field(description="预算账本")
     notes: list[str] = Field(default=[], description="实用贴士")
 
 
@@ -73,9 +60,3 @@ class WeatherDay(BaseModel):
     weather: str = Field(description="天气描述,晴/多云/小雨/...")
     temp_max: int = Field(description="最高气温(℃)")
     temp_min: int = Field(description="最低气温(℃)")
-
-
-class BudgetRule(BaseModel):
-    """预算规则(L6 才填,先占位)"""
-    total: float = Field(description="总预算")
-    per_day: float = Field(default=0.0, description="人均日预算(派生)")

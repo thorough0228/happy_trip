@@ -13,7 +13,7 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![Redis](https://img.shields.io/badge/Redis-5%2B-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 [![Amap](https://img.shields.io/badge/POI-高德地图-1677FF)](https://lbs.amap.com/)
-[![Eval: 12 hard rules](https://img.shields.io/badge/Eval-12%20hard%20rules-brightgreen)](evaluation/run_eval.py)
+[![Eval: 7 hard rules](https://img.shields.io/badge/Eval-7%20hard%20rules-brightgreen)](evaluation/run_eval.py)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-blue)](LICENSE)
 
 [项目结构](#项目结构) · [系统架构](#系统架构) · [设计亮点](#设计亮点) · [快速开始](#快速开始) · [评测体系](#评测体系)
@@ -28,7 +28,7 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 
 - 🧠 **PlannerContext 协议** — 外部事实(高德 POI / 天气 / 票价)由程序收集并打包,LLM 只在事实范围内编排,事实不会被"创作"
 - 🛡️ **双轨防御** — prompt 软约束 + 7 项硬规则校验 + 反思重试循环,既靠 LLM 自觉也靠程序强制
-- 💰 **预算账本** — 景点票价全部由代码查(免费则 0),LLM 不允许自报数字,杜绝价格幻觉
+- 🎫 **票价可信** — 景点票价由代码从静态票价表查询(免费则 0),LLM 不允许自报数字,杜绝价格幻觉;无预算约束,LLM 只按行程体验编排
 - 🌧️ **天气感知行程** — Intent 阶段拉高德实时天气,雨天引导 LLM 优先安排室内景点
 - ⚡ **异步任务 + SSE 推送** — `POST /api/trip/plan` 立即返回 task_id,前端订阅 SSE 拿实时进度和最终结果,不再 30~90 秒干等
 - 🗄️ **Redis 后端(可选)** — 高德 POI/天气缓存 + 任务状态走 Redis;未配置或不可用时静默降级,主流程不受影响
@@ -68,7 +68,6 @@ LLM 编排(async chat, 单次输出)
    ▼
 硬规则校验 (validate_plan)
    ├─ 候选约束:景点必须在候选中
-   ├─ 预算一致性:total_attractions = total(±5%)
    └─ 多样性:同一景点同一天不重复
    │
    ▼
@@ -104,18 +103,18 @@ _enrich_locations                          前端 Result.vue 渲染行程
 所有景点必须来自高德 API 搜索结果,LLM 不得凭空生成名字。`build_context()` 做景点召回 + 价格填充 + 日期展开 + 天气快照,打包成 `PlannerContext`,LLM 只能在 ctx 范围内编排。`validate_plan` 强制检查每一项 `name` 是否在 ctx 的 `attractions` 集合里。
 
 **2. 双轨防御 — 软约束 + 硬规则 + Reviewer 软提示**
-- **prompt 软约束**:`build_prompt` 的 system 部分枚举 9 条硬性指令(候选约束、价格约束、多样性、预算利用率等),引导 LLM 自觉
-- **7 项硬规则**:`validate_plan` 跑候选约束、预算一致性、预算利用率、路径优化、Time Check、天数匹配、景点多样性等确定性检查
+- **prompt 软约束**:`build_prompt` 的 system 部分枚举 6 条硬性指令(候选约束、价格约束、多样性等),引导 LLM 自觉
+- **确定性检查**:`validate_plan` 跑候选约束与景点多样性;plan_trip 内嵌 Time Check;评测覆盖天数匹配、路径优化、时间数据等
 - **Reviewer 软提示(替代反思重试)**:业务校验不通过**不再让 LLM 重生成**,而是由 `agents/reviewer.py` 单独调一次 LLM,基于错误列表生成 2-4 条中文警告追加到 `TripPlan.notes`。这样省 token(避免 1 次失败触发 2-3 次 LLM 重生成),且保留可观测性(用户能看到具体哪里不准确)
 - **Pydantic schema 失败仍重试**:JSON 损坏 / 字段缺失是致命错,保留 1 次重试
 
 **3. Plan-and-Execute + 轻量 Reflexion — 不依赖 Agent 框架**
 没用 LangGraph / ReAct / AutoGPT。旅行规划工具调用固定(POI / 天气 / 票价),程序决定调什么,LLM 决定怎么编排。一次外部数据收集 + LLM 一次输出完整 JSON + Reviewer 软提示,代码量小、行为可控、省 token。
 
-**4. 预算账本 — 价格不让 LLM 编**
+**4. 票价透明 — 价格不让 LLM 编**
 LLM 经常幻觉价格。Happy Trip 强制:
 - 景点价格:静态票价表 `attraction_price.json`(按城市 × 景点索引,免费则 0)
-LLM 只能引用候选 POI 的 `cost` 字段,不允许自报数字。`budget_arithmetic_consistent` 规则再校验 `total_attractions` = total(±5%);`budget_utilization_ok` 校验总成本不小于用户预算的 80%(统一阈值),防止 LLM 偷懒出低价行程。
+LLM 只能引用候选 POI 的 `cost` 字段,不允许自报数字。系统不设总预算约束,也不做预算账本——只保证每处票价真实可溯。
 
 **5. 天气感知行程**
 `build_context` 拉取行程日期的天气预报(高德 V3 weatherInfo,extensions=all),写入 `PlannerContext.weather`。LLM 在 prompt 里看到逐日天气,雨雪天会优先选博物馆、展馆等室内景点。超过预报范围(>3 天)时降级为 `unknown`,不中断规划。
@@ -240,7 +239,7 @@ npm run dev
 
 ### 6. 跑一次端到端
 
-填表(目的地 / 日期 / 人数 / 预算 / 偏好)→ 提交 → 立即跳转 Result 页 → 进度条动起来 → 完成后渲染行程卡片 + 高德地图标记。
+填表(目的地 / 日期 / 人数 / 偏好)→ 提交 → 立即跳转 Result 页 → 进度条动起来 → 完成后渲染行程卡片 + 高德地图标记。
 
 ---
 
@@ -259,7 +258,7 @@ happy_trip/
 │   │   │   └── routes/
 │   │   │       └── trip.py          # POST /plan + GET /stream/{id}
 │   │   ├── models/
-│   │   │   ├── schemas.py           # TripRequest / TripPlan / Day / Budget
+│   │   │   ├── schemas.py           # TripRequest / TripPlan / Day / WeatherDay
 │   │   │   └── poi.py               # POI 领域模型 + location 解析
 │   │   ├── planner/                 # 核心业务逻辑
 │   │   │   ├── context.py           # PlannerContext 编译(async)
@@ -269,7 +268,7 @@ happy_trip/
 │   │   │   ├── geo.py               # haversine 球面距离工具
 │   │   │   ├── optimize.py          # 单天路径优化(纯景点 haversine 最短路径)
 │   │   │   ├── pricing.py           # 静态票价表(酒店/餐饮估价已停用)
-│   │   │   └── validation.py        # 硬规则校验(候选/预算/多样性)
+│   │   │   └── validation.py        # 硬规则校验(候选/多样性)
 │   │   └── services/
 │   │       ├── amap.py              # 高德 V3 HTTP(async,httpx.AsyncClient)
 │   │       ├── llm.py               # AsyncOpenAI + JSON 提取
@@ -313,7 +312,7 @@ happy_trip/
 
 ```
 冻结输入(eval_set.jsonl 20 条)    真实 LLM 调用
- 目的地/日期/人数/预算/偏好        PlannerContext → plan_trip
+ 目的地/日期/人数/偏好           PlannerContext → plan_trip
         │                              │
         └──── build_context 共享 ──────┘
                        │
@@ -321,8 +320,8 @@ happy_trip/
                        │
             ┌──────────┴──────────┐
             ▼                     ▼
-    7 项硬规则(G1-G7)        候选约束 / 预算算术 / 利用率 / 路径优化 / Time Check / 天数 / 景点数
-    (确定性,零 LLM 成本)      (不含餐厅/酒店约束)
+    7 项硬规则(G1-G7)        候选约束 / 路径优化 / Time Check / 天数 / 景点数
+    (确定性,零 LLM 成本)      (不含餐厅/酒店/预算约束)
 ```
 
 - **输入冻结**:20 条样本覆盖 11 个城市、3 种人数类型、确定可复现
@@ -336,9 +335,6 @@ happy_trip/
 | `json_parse_ok` | LLM 输出能解析为合法 JSON |
 | `schema_valid` | Pydantic schema 校验通过 |
 | `attraction_in_candidates` | 景点名在候选 POI 列表中 |
-| `budget_arithmetic_consistent` | `budget.total = total_attractions(±5%)` |
-| `budget_within_constraint` | 总预算不超用户预算上限 |
-| `budget_utilization_ok` | `total / 用户预算 ≥ 80%`(统一阈值),防 LLM 偷懒出低价 |
 | `days_count_match` | `days` 数组长度 = `travel_days` |
 | `attraction_count_ok` | 每天至少 1 个景点 |
 | `route_optimized_ok` | 至少一条 `dist_from_prev_km > 0`(后端确实跑了路径优化) |

@@ -39,9 +39,9 @@
         </a-row>
       </section>
 
-      <!-- 分组 2:同行与预算 -->
+      <!-- 分组 2:同行人数 -->
       <section class="form-section">
-        <h3 class="section-title">👥 同行与预算</h3>
+        <h3 class="section-title">👥 同行人数</h3>
         <a-row :gutter="16">
           <a-col :span="5">
             <a-form-item label="成人">
@@ -66,13 +66,6 @@
                 <a-select-option value="family">家庭</a-select-option>
                 <a-select-option value="friends">朋友</a-select-option>
               </a-select>
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="总预算(元)">
-              <a-input-number v-model:value="form.budget_constraint.amount" :min="0" placeholder="可不填" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -202,9 +195,6 @@ const form = reactive<Omit<TripRequest, 'travel_days'> & { travel_days: number }
     children: 0,
     elders: 0,
     companion_type: 'solo',
-  },
-  budget_constraint: {
-    amount: 3000,
   },
   preferences: [],
   negative_constraints: [],

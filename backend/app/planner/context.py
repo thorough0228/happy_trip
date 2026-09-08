@@ -1,7 +1,7 @@
 """
 PlannerContext:整个项目的"产品逻辑心脏"。
 
-把所有外部事实(景点/天气/预算)打包,让 LLM 在事实范围内做编排。
+把所有外部事实(景点/票价/天气)打包,让 LLM 在事实范围内做编排。
 LLM 不再是事实源,只是编排器。
 """
 from datetime import date
@@ -10,7 +10,7 @@ from typing import Awaitable, Callable
 from pydantic import BaseModel, Field
 
 from app.models.poi import POI
-from app.models.schemas import BudgetRule, TripRequest, WeatherDay
+from app.models.schemas import TripRequest, WeatherDay
 from app.planner.dates import expand_dates
 from app.planner.pois import search_attractions
 from app.planner.pricing import get_attraction_price
@@ -28,7 +28,6 @@ class PlannerContext(BaseModel):
     dates: list[date] = Field(default_factory=list)  # 行程日期列表(L7 才完整)
     attractions: list[POI] = Field(default_factory=list)  # 景点候选
     weather: list[WeatherDay] = Field(default_factory=list)  # 天气快照(L7)
-    budget_rule: BudgetRule | None = None               # 预算规则(L6 才填,先占位)
 
     def summary(self) -> str:
         """序列化成可读字符串,用于塞进 LLM prompt。"""
@@ -43,8 +42,6 @@ class PlannerContext(BaseModel):
             lines.append(f"\n【天气】共 {len(self.weather)} 天")
             for w in self.weather:
                 lines.append(f"  - {w.day}: {w.weather}, {w.temp_min}°C ~ {w.temp_max}°C")
-        if self.budget_rule:
-            lines.append(f"\n【预算】总额 {self.budget_rule.total} 元")
         return "\n".join(lines)
 
 

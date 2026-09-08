@@ -7,16 +7,11 @@ export interface Party {
   total?: number
 }
 
-export interface BudgetConstraint {
-  amount: number
-}
-
 export interface TripRequest {
   destination: string
   start_date: string
   travel_days: number
   party: Party
-  budget_constraint: BudgetConstraint
   preferences: string[]
   negative_constraints: string[]
 }
@@ -37,18 +32,12 @@ export interface Day {
   hotel_area_hint: string | null  // 酒店区域建议(LLM 生成,自然语言)
 }
 
-export interface Budget {
-  total_attractions: number
-  total: number
-}
-
 export interface TripPlan {
   title: string
   destination: string
   date_range: string
   party: Party
   days: Day[]
-  budget: Budget
   notes: string[]
 }
 
