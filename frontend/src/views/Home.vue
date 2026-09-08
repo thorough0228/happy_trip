@@ -2,83 +2,84 @@
   <div class="trip-form">
     <h2 style="margin-bottom: 24px">行程需求</h2>
 
-    <a-form :model="form" layout="vertical" @finish="handleSubmit">
-      <!-- 分组 1:目的地与日期 -->
-      <section class="form-section">
-        <h3 class="section-title">📍 目的地与日期</h3>
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="目的地城市" :rules="[{ required: true, message: '请输入目的地' }]">
-              <a-input v-model:value="form.destination" placeholder="例如:北京" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="开始日期" :rules="[{ required: true, validator: validateStartDate }]">
-              <a-date-picker
-                v-model:value="startDate"
-                :disabled-date="disabledStartDate"
-                format="YYYY-MM-DD"
-                value-format="YYYY-MM-DD"
-                style="width: 100%"
-                placeholder="选择日期"
-              />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="结束日期" :rules="[{ required: true, validator: validateEndDate }]">
-              <a-date-picker
-                v-model:value="endDate"
-                :disabled-date="disabledEndDate"
-                format="YYYY-MM-DD"
-                value-format="YYYY-MM-DD"
-                style="width: 100%"
-                placeholder="选择日期"
-              />
-            </a-form-item>
-          </a-col>
-        </a-row>
-      </section>
+    <a-row :gutter="24">
+      <!-- 左栏:选择表单 -->
+      <a-col :xs="24" :md="14" :lg="13">
+        <a-form :model="form" layout="vertical" @finish="handleSubmit">
+          <!-- 分组 1:目的地与日期 -->
+          <section class="form-section">
+            <h3 class="section-title">📍 目的地与日期</h3>
+            <a-row :gutter="16">
+              <a-col :span="24">
+                <a-form-item label="目的地城市" :rules="[{ required: true, message: '请输入目的地' }]">
+                  <a-input v-model:value="form.destination" placeholder="例如:北京" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="12">
+                <a-form-item label="开始日期" :rules="[{ required: true, validator: validateStartDate }]">
+                  <a-date-picker
+                    v-model:value="startDate"
+                    :disabled-date="disabledStartDate"
+                    format="YYYY-MM-DD"
+                    value-format="YYYY-MM-DD"
+                    style="width: 100%"
+                    placeholder="选择日期"
+                  />
+                </a-form-item>
+              </a-col>
+              <a-col :span="12">
+                <a-form-item label="结束日期" :rules="[{ required: true, validator: validateEndDate }]">
+                  <a-date-picker
+                    v-model:value="endDate"
+                    :disabled-date="disabledEndDate"
+                    format="YYYY-MM-DD"
+                    value-format="YYYY-MM-DD"
+                    style="width: 100%"
+                    placeholder="选择日期"
+                  />
+                </a-form-item>
+              </a-col>
+            </a-row>
+          </section>
 
-      <!-- 分组 2:同行人数 -->
-      <section class="form-section">
-        <h3 class="section-title">👥 同行人数</h3>
-        <a-row :gutter="16">
-          <a-col :span="5">
-            <a-form-item label="成人">
-              <a-input-number v-model:value="form.party.adults" :min="1" :max="20" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="5">
-            <a-form-item label="儿童">
-              <a-input-number v-model:value="form.party.children" :min="0" :max="10" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="5">
-            <a-form-item label="老人">
-              <a-input-number v-model:value="form.party.elders" :min="0" :max="10" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="4">
-            <a-form-item label="同行类型">
-              <a-select v-model:value="form.party.companion_type">
-                <a-select-option value="solo">独行</a-select-option>
-                <a-select-option value="couple" :disabled="totalPeople === 1">情侣</a-select-option>
-                <a-select-option value="family" :disabled="totalPeople === 1">家庭</a-select-option>
-                <a-select-option value="friends" :disabled="totalPeople === 1">朋友</a-select-option>
-              </a-select>
-              <div v-if="totalPeople === 1" style="color: #888; font-size: 12px; margin-top: 4px">
-                仅 1 人出行,同行类型固定为「独行」
-              </div>
-            </a-form-item>
-          </a-col>
-        </a-row>
-      </section>
+          <!-- 分组 2:同行人数 -->
+          <section class="form-section">
+            <h3 class="section-title">👥 同行人数</h3>
+            <a-row :gutter="16">
+              <a-col :span="6">
+                <a-form-item label="成人">
+                  <a-input-number v-model:value="form.party.adults" :min="1" :max="20" style="width: 100%" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="6">
+                <a-form-item label="儿童">
+                  <a-input-number v-model:value="form.party.children" :min="0" :max="10" style="width: 100%" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="6">
+                <a-form-item label="老人">
+                  <a-input-number v-model:value="form.party.elders" :min="0" :max="10" style="width: 100%" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="6">
+                <a-form-item label="同行类型">
+                  <a-select v-model:value="form.party.companion_type">
+                    <a-select-option value="solo">独行</a-select-option>
+                    <a-select-option value="couple" :disabled="totalPeople === 1">情侣</a-select-option>
+                    <a-select-option value="family" :disabled="totalPeople === 1">家庭</a-select-option>
+                    <a-select-option value="friends" :disabled="totalPeople === 1">朋友</a-select-option>
+                  </a-select>
+                  <div v-if="totalPeople === 1" style="color: #888; font-size: 12px; margin-top: 4px">
+                    仅 1 人出行,同行类型固定为「独行」
+                  </div>
+                </a-form-item>
+              </a-col>
+            </a-row>
+          </section>
 
-      <!-- 分组 3:偏好设置 -->
-      <section class="form-section">
-        <h3 class="section-title">🛏 偏好设置</h3>
-        <a-row :gutter="16" align="top">
-          <a-col :span="24">
+          <!-- 分组 3:偏好设置 -->
+          <section class="form-section">
+            <h3 class="section-title">🛏 偏好设置</h3>
             <a-form-item label="旅行偏好">
               <a-checkbox-group v-model:value="form.preferences" style="width: 100%">
                 <a-row>
@@ -88,40 +89,47 @@
                 </a-row>
               </a-checkbox-group>
             </a-form-item>
-          </a-col>
-        </a-row>
-      </section>
+          </section>
 
-      <!-- 分组 4:额外要求 -->
-      <section class="form-section">
-        <h3 class="section-title">📝 额外要求</h3>
-        <a-form-item label="负面约束(逗号分隔)">
-          <a-input v-model:value="negativeText" placeholder="如:不吃辣,不去网红店,避开人多的景点" />
-        </a-form-item>
-      </section>
+          <!-- 分组 4:额外要求 -->
+          <section class="form-section">
+            <h3 class="section-title">📝 额外要求</h3>
+            <a-form-item label="负面约束(逗号分隔)">
+              <a-input v-model:value="negativeText" placeholder="如:不吃辣,不去网红店,避开人多的景点" />
+            </a-form-item>
+          </section>
 
-      <a-form-item>
-        <a-button type="primary" html-type="submit" :loading="loading" :disabled="loading" size="large" block>
-          生成行程
-        </a-button>
-      </a-form-item>
-    </a-form>
+          <a-form-item>
+            <a-button type="primary" html-type="submit" :loading="loading" :disabled="loading" size="large" block>
+              生成行程
+            </a-button>
+          </a-form-item>
+        </a-form>
 
-    <!-- 进度区:贴在"生成行程"按钮下方,留在 Home 页,完成后再跳 Result -->
-    <div v-if="showProgress" class="progress-section">
-      <a-progress
-        :percent="progressPct"
-        :status="errorMsg ? 'exception' : 'active'"
-        :stroke-color="errorMsg ? undefined : '#1677ff'"
-      />
-      <div class="progress-stage">
-        <span v-if="errorMsg" style="color: #ff4d4f">❌ {{ errorMsg }}</span>
-        <span v-else style="color: #555">⏳ {{ progressStage || '准备中...' }}</span>
-      </div>
-      <a-button v-if="errorMsg" type="primary" size="small" @click="resetProgress" style="margin-top: 8px">
-        重试
-      </a-button>
-    </div>
+        <!-- 进度区:贴在"生成行程"按钮下方,留在 Home 页,完成后再跳 Result -->
+        <div v-if="showProgress" class="progress-section">
+          <a-progress
+            :percent="progressPct"
+            :status="errorMsg ? 'exception' : 'active'"
+            :stroke-color="errorMsg ? undefined : '#1677ff'"
+          />
+          <div class="progress-stage">
+            <span v-if="errorMsg" style="color: #ff4d4f">❌ {{ errorMsg }}</span>
+            <span v-else style="color: #555">⏳ {{ progressStage || '准备中...' }}</span>
+          </div>
+          <a-button v-if="errorMsg" type="primary" size="small" @click="resetProgress" style="margin-top: 8px">
+            重试
+          </a-button>
+        </div>
+      </a-col>
+
+      <!-- 右栏:目的地地图 -->
+      <a-col :xs="24" :md="10" :lg="11">
+        <a-card title="📍 目的地预览" style="position: sticky; top: 24px">
+          <HomeMap :destination="form.destination" />
+        </a-card>
+      </a-col>
+    </a-row>
   </div>
 </template>
 
@@ -130,6 +138,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import dayjs, { Dayjs } from 'dayjs'
 import { useRouter } from 'vue-router'
 import { planTrip, streamTask } from '../services/api'
+import HomeMap from '../components/HomeMap.vue'
 import type { TripRequest } from '../types'
 
 const router = useRouter()
