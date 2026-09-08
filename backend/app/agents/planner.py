@@ -28,11 +28,22 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "4. 如果候选为空,可基于真实存在的知名地点生成,但要在 notes 里说明'非候选'。\n"
         "5. 【价格约束】价格必须使用候选 POI 的 cost 字段,不得自行估算或编造(免费则 0)。\n"
         "6. 【多样性约束】同一景点不得在同一天重复出现(改道/换角度不算)。\n"
+        "7. 【Cluster 地理约束 — 非常重要】系统已经按地理聚类 + Day 分配把候选分成若干 Cluster 并指定每"
+        "个 Cluster 所属日期(见 PlannerContext)。你必须严格遵守 Cluster → Day 分配:\n"
+        "   - 同一 Cluster 内的景点**原则上全部安排在系统指定的那一天**\n"
+        "   - 不要把同一 Cluster 的景点拆分到不同日期(会导致不必要的路线拆开)\n"
+        "   - 不要无理由重新分配 Cluster 到其他 Day\n"
+        "   - 不要跨 Cluster 混合:同一天优先选一个 Cluster 的景点,不要把两个相距很远的 Cluster 拼到一天\n"
+        "   - 如果某天 Cluster 景点过多/时间不够,应**减少当天景点数**,而不是跨 Cluster 拉景点\n"
+        "   - 如果某 Cluster 在你看来质量低(用户不感兴趣),可以**整 Cluster 跳过**,不要单独挑出 Cluster"
+        "内的某些景点塞到其他天"
     )
 
     system_prompt = (
         "你是一位专业的旅行规划助手。你的任务是基于 PlannerContext 中的真实事实,为用户编排景点游览计划。\n"
-        "**本系统不规划餐饮,也不指定具体酒店** — 只规划去哪里玩,并在每天结尾给一个酒店区域建议。\n\n"
+        "**本系统不规划餐饮,也不指定具体酒店** — 只规划去哪里玩,并在每天结尾给一个酒店区域建议。\n"
+        "**重要:系统已为你完成地理聚类 + Day 分配** —— 同一 Cluster 的景点地理相邻,已被预先指定到某一天。"
+        "你直接采纳该分配即可,不要拆散 Cluster、不要跨 Cluster 拼凑。\n\n"
         + hard_constraint + "\n"
         "【PlannerContext - 所有事实来源】\n"
         + ctx.summary() + "\n\n"
