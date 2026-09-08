@@ -43,6 +43,11 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "    不应远低于用户预期(LLM 倾向保守出低价)。\n"
         "    在景点门票、酒店档次、餐饮规格上合理分配,让总成本贴近用户预算,\n"
         "    但不必花满 — 用户预算允许有一定的节约空间。\n"
+        "11. 【景点时段排布 — 路径优化需要】每天的 attractions 数组按时间顺序输出:\n"
+        "    - 适合白天的景点放前面(博物馆、公园、寺庙、古迹等)\n"
+        "    - 适合晚上的景点放最后(夜市、夫子庙、城市阳台、灯光秀、酒吧街等)\n"
+        "    后端会按 [morning | afternoon | evening] 三段切分路径,晚餐插在 afternoon 和 evening 之间。\n"
+        "    如果当天没有 evening 景点(全部白天逛完回酒店),那就让 evening 段为空,算法会自动处理。\n"
     )
 
     system_prompt = (

@@ -140,8 +140,10 @@ reasoning 模型(如 M3)的响应混杂大量 thinking 块,里面可能有伪 JS
 **10. 坐标回填防 LLM 幻觉**
 LLM 输出 `TripPlan` 时**不**输出经纬度(怕它编),后端 `_enrich_locations` 用 name 映射回填 PlannerContext 里 POI 的真实坐标,专门给前端 `DayMap` 用。
 
-**11. 路径优化**
-单天景点暴力枚举全排列,haversine 计算总路程,选最短排列重写 attractions 顺序,重算每个节点的 `dist_from_prev_km`。保证 `best_km ≤ original_km`(原始排列是候选项之一)。Meals/hotel 保持原位不动(系统没有 period 时段概念)。复杂度 N!,实际行程 2-5 个景点完全可接受。
+**11. 路径优化(景点 + 三餐联合)**
+完整路径模型 = `hotel → breakfast → 上午景点 → lunch → 下午景点 → dinner → 晚上景点 → hotel`。算法枚举**两个切分点** (morning/afternoon/evening 三段)+ 3 段子排列,选总路径最短。Meals 强制插入路径,保证"去完哪些景点后去哪吃饭"的地理合理性。
+evening 段是**可选项** — 实际场景里夜市、夫子庙、城市阳台、灯光秀等适合晚上逛就放输出末尾让算法识别;若当天全部白天景点,evening 段为 0(下午逛完直接回酒店),算法自动处理。
+复杂度 `O(N² × max(k1! × k2! × k3!))`,N ≤ 10 暴力枚举精确最优(N=10 ~18k 次距离计算,~10 ms)。
 前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
 
 **12. Time Check Agent(开放时间验证)**
@@ -270,7 +272,7 @@ happy_trip/
 │   │   │   ├── weather.py           # 天气快照(async)
 │   │   │   ├── dates.py             # 日期展开
 │   │   │   ├── geo.py               # haversine 球面距离工具
-│   │   │   ├── optimize.py          # 单天路径优化(暴力枚举 + haversine)
+│   │   │   ├── optimize.py          # 单天路径优化(morning/afternoon/evening 三段 + 三餐 + haversine)
 │   │   │   ├── pricing.py           # 票价表 + 酒店/餐饮规则估价
 │   │   │   └── validation.py        # 15 项硬规则校验
 │   │   └── services/
