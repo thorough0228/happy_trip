@@ -144,7 +144,8 @@ LLM 输出 `TripPlan` 时**不**输出经纬度(怕它编),后端 `_enrich_locat
 完整路径模型 = `hotel → breakfast → 上午景点 → lunch → 下午景点 → dinner → 晚上景点 → hotel`。算法枚举**两个切分点** (morning/afternoon/evening 三段)+ 3 段子排列,选总路径最短。Meals 强制插入路径,保证"去完哪些景点后去哪吃饭"的地理合理性。
 evening 段是**可选项** — 实际场景里夜市、夫子庙、城市阳台、灯光秀等适合晚上逛就放输出末尾让算法识别;若当天全部白天景点,evening 段为 0(下午逛完直接回酒店),算法自动处理。
 复杂度 `O(N² × max(k1! × k2! × k3!))`,N ≤ 10 暴力枚举精确最优(N=10 ~18k 次距离计算,~10 ms)。
-前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
+前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。**Polyline 包含完整路径节点**:hotel → breakfast → 上午景点 → lunch → 下午景点 → dinner → 晚上景点 → hotel(三段 + 三餐)。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
+`Result.vue` 按上午 / 中午 / 晚上三个时段分块渲染景点列表,meal 作为时段入口。每段卡片独立显示,evening 段可选(为空则不显示)。
 
 **12. Time Check Agent(开放时间验证)**
 独立 Agent 验证 plan 中每个景点的开放时间是否与行程日期冲突(闭馆日、营业时段、节假日)。CoT 推理 → 输出 conflicts → 嵌入主循环共用重试 budget(reviewer 不管时间)。POI.opening_hours 字段从高德 V3 `business.opening_hours` 解析,缺失则跳过(降级不报错)。职责分离避免 reviewer 与 Time Check 双重干预震荡。
@@ -292,7 +293,7 @@ happy_trip/
 │   ├── src/
 │   │   ├── views/
 │   │   │   ├── Home.vue             # 旅行需求表单 → /result?task_id=...
-│   │   │   └── Result.vue           # 行程结果 + SSE 实时进度 + 地图
+│   │   │   └── Result.vue           # 行程结果(按时段分块渲染)+ SSE 实时进度 + 地图
 │   │   ├── components/
 │   │   │   └── DayMap.vue           # 单日地图(高德 JS API 动态加载)
 │   │   ├── services/

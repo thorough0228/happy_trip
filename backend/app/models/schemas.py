@@ -70,6 +70,8 @@ class Day(BaseModel):
         description="三餐,键为 'breakfast'/'lunch'/'dinner',可以 None(比如当天无早餐)",
     )
     hotel: Hotel | None = Field(default=None, description="当日住宿（若当天有住宿）")
+    split1: int = Field(default=0, description="上午段结束位置(午餐前),attractions 索引")
+    split2: int = Field(default=0, description="下午段结束位置(晚餐前),attractions 索引")
 
 
 class Budget(BaseModel):

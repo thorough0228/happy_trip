@@ -57,6 +57,8 @@ export interface Day {
     dinner: Meal | null
   }
   hotel: Hotel | null
+  split1: number  // 上午段结束位置(午餐前),attractions 索引
+  split2: number  // 下午段结束位置(晚餐前),attractions 索引
 }
 
 export interface Budget {

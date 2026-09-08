@@ -151,14 +151,17 @@ function addMarkers(AMap: any) {
 }
 
 async function renderRouteSegments(AMap: any) {
-  // 景点顺序连线:默认画直线(蓝色),异步调 walking API 替换为真实路网(绿色)
-  const atts = props.day.attractions.filter(a => a.location)
-  if (atts.length < 2) return
+  /**
+   * 画完整顺序路径(含三段 + hotel 起终点):
+   *   hotel → breakfast → morning 景点 → lunch → afternoon 景点 → dinner → evening 景点 → hotel
+   * 默认画直线(蓝色),异步调 walking API 拿真实路网替换为绿色实线。
+   */
+  const path = _buildFullPath()
+  if (path.length < 2) return
 
   // 直线兜底(蓝色)
-  const linePath = atts.map(a => a.location!)
   const fallback = new AMap.Polyline({
-    path: linePath,
+    path: path,
     strokeColor: '#1677ff',
     strokeWeight: 3,
     strokeOpacity: 0.8,
@@ -167,20 +170,20 @@ async function renderRouteSegments(AMap: any) {
   fallback.setMap(mapInstance)
   polylines.push(fallback)
 
-  // 异步获取真实路网替换
-  const realCoords: [number, number][][] = []
-  for (let i = 1; i < atts.length; i++) {
-    const result = await getWalkingRoute(atts[i - 1].location!, atts[i].location!)
+  // 异步获取真实路网(逐段调 walking API)
+  const realSegments: [number, number][][] = []
+  for (let i = 0; i < path.length - 1; i++) {
+    const result = await getWalkingRoute(path[i], path[i + 1])
     if (result && result.coords && result.coords.length > 0) {
-      realCoords.push(result.coords as [number, number][])
-    } else {
-      realCoords.push([atts[i - 1].location!, atts[i].location!])  // fallback 到直线
+      realSegments.push(result.coords as [number, number][])
+    else {
+      realSegments.push([path[i], path[i + 1]])  // 单段 fallback
     }
   }
 
-  if (realCoords.length > 0) {
+  if (realSegments.length > 0) {
     const real = new AMap.Polyline({
-      path: realCoords.flat(),
+      path: realSegments.flat(),
       strokeColor: '#52c41a',
       strokeWeight: 4,
       strokeOpacity: 0.9,
@@ -190,6 +193,56 @@ async function renderRouteSegments(AMap: any) {
     fallback.setMap(null)
     polylines.push(real)
   }
+}
+
+/**
+ * 构造完整路径节点序列(按后端 split1/split2 切分)。
+ * 后端已保证最优路径,前端只需按顺序连点。
+ */
+function _buildFullPath(): [number, number][] {
+  const path: [number, number][] = []
+  const day = props.day
+  const hotel = day.hotel?.location
+  const breakfast = day.meals.breakfast?.location
+  const lunch = day.meals.lunch?.location
+  const dinner = day.meals.dinner?.location
+  const atts = day.attractions
+  const s1 = day.split1 || 0
+  const s2 = day.split2 || 0
+
+  // hotel(起点)
+  if (hotel) path.push(hotel)
+
+  // 早餐
+  if (breakfast) path.push(breakfast)
+
+  // 上午景点 (atts[0:s1])
+  for (let i = 0; i < s1; i++) {
+    if (atts[i]?.location) path.push(atts[i].location!)
+  }
+
+  // 午餐
+  if (lunch) path.push(lunch)
+
+  // 下午景点 (atts[s1:s2])
+  for (let i = s1; i < s2; i++) {
+    if (atts[i]?.location) path.push(atts[i].location!)
+  }
+
+  // 晚餐
+  if (dinner) path.push(dinner)
+
+  // 晚上景点 (atts[s2:])
+  for (let i = s2; i < atts.length; i++) {
+    if (atts[i]?.location) path.push(atts[i].location!)
+  }
+
+  // hotel(终点)— 跟起点同位置,不重复 push,polyline 会自动闭环
+  if (hotel && path.length > 1 && path[0] !== hotel) {
+    path.push(hotel)
+  }
+
+  return path
 }
 
 onMounted(renderMap)

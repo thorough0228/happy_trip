@@ -62,6 +62,8 @@ def optimize_day(day: Day) -> tuple[Day, float]:
         attractions=result.perm,
         meals=day.meals,
         hotel=day.hotel,
+        split1=result.split1,
+        split2=result.split2,
     ), original_km
 
 
