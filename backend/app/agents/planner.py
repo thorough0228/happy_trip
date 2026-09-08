@@ -257,8 +257,11 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
     total_original_km = 0.0
     for day in plan.days:
         optimized_day, original_km = optimize_day(day)
-        # 原地写回(optimize_day 内部已经修改了 dist_from_prev_km)
+        # 写回优化结果:attractions + 时段切分点(否则 split1/split2 永远是 schema 默认值 0)
         day.attractions = optimized_day.attractions
+        day.split1 = optimized_day.split1
+        day.split2 = optimized_day.split2
+        # dist_from_prev_km 已在 optimized_day.attractions[i] 里原地修改
         total_original_km += original_km
 
     return plan
