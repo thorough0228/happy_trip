@@ -62,10 +62,13 @@
             <a-form-item label="同行类型">
               <a-select v-model:value="form.party.companion_type">
                 <a-select-option value="solo">独行</a-select-option>
-                <a-select-option value="couple">情侣</a-select-option>
-                <a-select-option value="family">家庭</a-select-option>
-                <a-select-option value="friends">朋友</a-select-option>
+                <a-select-option value="couple" :disabled="totalPeople === 1">情侣</a-select-option>
+                <a-select-option value="family" :disabled="totalPeople === 1">家庭</a-select-option>
+                <a-select-option value="friends" :disabled="totalPeople === 1">朋友</a-select-option>
               </a-select>
+              <div v-if="totalPeople === 1" style="color: #888; font-size: 12px; margin-top: 4px">
+                仅 1 人出行,同行类型固定为「独行」
+              </div>
             </a-form-item>
           </a-col>
         </a-row>
@@ -123,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import dayjs, { Dayjs } from 'dayjs'
 import { useRouter } from 'vue-router'
 import { planTrip, streamTask } from '../services/api'
@@ -131,6 +134,31 @@ import type { TripRequest } from '../types'
 
 const router = useRouter()
 const loading = ref(false)
+
+// ---- 同行类型联动:总人数 = 1 时只能独行 ----
+const form = reactive<Omit<TripRequest, 'travel_days'> & { travel_days: number }>({
+  destination: '北京',
+  start_date: '',
+  travel_days: 0,
+  party: {
+    adults: 1,
+    children: 0,
+    elders: 0,
+    companion_type: 'solo',
+  },
+  preferences: [],
+  negative_constraints: [],
+})
+
+const totalPeople = computed(
+  () => form.party.adults + form.party.children + form.party.elders,
+)
+
+watch(totalPeople, (n) => {
+  if (n === 1 && form.party.companion_type !== 'solo') {
+    form.party.companion_type = 'solo'
+  }
+})
 
 // 进度状态
 const progressStage = ref('')
@@ -185,20 +213,6 @@ const preferenceOptions = [
   '城市漫步', '户外徒步', '主题乐园',
   '避开人群',
 ]
-
-const form = reactive<Omit<TripRequest, 'travel_days'> & { travel_days: number }>({
-  destination: '北京',
-  start_date: '',
-  travel_days: 0,
-  party: {
-    adults: 1,
-    children: 0,
-    elders: 0,
-    companion_type: 'solo',
-  },
-  preferences: [],
-  negative_constraints: [],
-})
 
 const negativeText = ref('')
 
