@@ -104,9 +104,14 @@ _enrich_locations                          前端 Result.vue 渲染行程
 
 **2. 双轨防御 — 软约束 + 硬规则 + Reviewer 软提示**
 - **prompt 软约束**:`build_prompt` 的 system 部分枚举 6 条硬性指令(候选约束、价格约束、多样性等),引导 LLM 自觉
-- **确定性检查**:`validate_plan` 跑候选约束与景点多样性;plan_trip 内嵌 Time Check;评测覆盖天数匹配、路径优化、时间数据等
+- **确定性检查**:`validate_plan` 跑候选约束、景点多样性(同名 + 地理近邻+名称相关双重去重);plan_trip 内嵌 Time Check;评测覆盖天数匹配、路径优化、时间数据等
 - **Reviewer 软提示(替代反思重试)**:业务校验不通过**不再让 LLM 重生成**,而是由 `agents/reviewer.py` 单独调一次 LLM,基于错误列表生成 2-4 条中文警告追加到 `TripPlan.notes`。这样省 token(避免 1 次失败触发 2-3 次 LLM 重生成),且保留可观测性(用户能看到具体哪里不准确)
 - **Pydantic schema 失败仍重试**:JSON 损坏 / 字段缺失是致命错,保留 1 次重试
+
+**2b. 景区重复双重判定(地理 + 名称)**
+高德 POI 经常把同一景区拆成多个子点(玄武湖 / 玄武湖情侣园 / 玄武门),只比完整同名会漏判。规则:
+- 两景点 haversine < 1km **且** 名称有 ≥ 2 字共同子串 → 报"疑似同一景区",让 LLM 二选一
+- 双条件都满足才触发,避免故宫/天安门这类"想都玩"的真近邻被误伤
 
 **3. Plan-and-Execute + 轻量 Reflexion — 不依赖 Agent 框架**
 没用 LangGraph / ReAct / AutoGPT。旅行规划工具调用固定(POI / 天气 / 票价),程序决定调什么,LLM 决定怎么编排。一次外部数据收集 + LLM 一次输出完整 JSON + Reviewer 软提示,代码量小、行为可控、省 token。
