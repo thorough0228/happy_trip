@@ -7,6 +7,8 @@ Cluster → Day 分配启发式。
 3. 各天 POI 数基本平衡(避免 1 天 8 个/2 天 0 个)
 
 算法:贪心 + 距离惩罚
+- 先拆分超大 cluster(> MAX_POIS_PER_CLUSTER 个 POI):按贪心空间链切成
+  多个子 cluster,避免一个片区 12 个 POI 挤一天
 - 按 cluster 中心距离"上一个 cluster"最近优先合并到同一天
 - 距离过远(> SAME_DAY_MAX_KM)即使 POI 多也不合并
 - cluster 数量 > days → 把地理相邻的 cluster 合并到同一天
@@ -23,6 +25,8 @@ from app.planner.geo import haversine_km
 # 启发式参数(可配置)
 SAME_DAY_MAX_KM = 3.0     # 同一天允许的"两个 cluster 中心"最大距离,超过则必须分天
 TARGET_POIS_PER_DAY = 5   # 每"天容量"目标值,决定拆分阈值
+MAX_POIS_PER_CLUSTER = 8  # cluster 超过此 POI 数 → 空间链切分(大片区拆开)
+SPLIT_TARGET_POIS = 6     # 拆分目标:每个子 cluster 约 6 个 POI
 
 
 def cluster_centers(clusters: list[list]) -> list:
@@ -44,6 +48,61 @@ def _count(day_clusters: list[list]) -> int:
     return sum(len(c) for c in day_clusters)
 
 
+def split_large_clusters(clusters: list[list]) -> list[list]:
+    """
+    把超大 cluster 按贪心空间链切成多个子 cluster(每个约 SPLIT_TARGET_POIS 个)。
+
+    原因:南京"玄武湖片区"一次聚类可能把 12 个 POI 链进同一 cluster
+    (城墙-玄武湖-总统府-六朝博物馆彼此 <2km),整块塞一天太多。
+    这里把 cluster 内 POI 排成"就近贪心链"(每次取离上一点最近的未取点),
+    再切成 ceil(len/SPLIT_TARGET_POIS) 段,每段空间连续,作为子 cluster。
+
+    保留结构:list[cluster] → list[POI]。<= 阈值的 cluster 原样保留。
+    """
+    out: list[list] = []
+    for cluster in clusters:
+        n = len(cluster)
+        if n <= MAX_POIS_PER_CLUSTER:
+            out.append(cluster)
+            continue
+        # 建贪心链:从中心点(经度最小的点)出发,反复取"距当前最近且未访问"的点
+        chain = _greedy_chain(cluster)
+        n_splits = max(2, (n + SPLIT_TARGET_POIS - 1) // SPLIT_TARGET_POIS)
+        per = (n + n_splits - 1) // n_splits  # ceil
+        for i in range(0, n, per):
+            out.append(chain[i : i + per])
+    return out
+
+
+def _greedy_chain(cluster: list) -> list:
+    """贪心链:从第一个(按经度最小)开始,每次取"距当前最近且未访问"的 POI。"""
+    pois = list(cluster)
+    if len(pois) < 2:
+        return pois
+    start = min(pois, key=lambda p: (p.location[0] if p.location else 0.0, p.location[1] if p.location else 0.0))
+    chain = [start]
+    visited = {id(start)}
+    current = start
+    remaining = [p for p in pois if id(p) not in visited]
+    while remaining:
+        # 最近邻(只比较有 location 的;全无 location 则按原序)
+        located = [p for p in remaining if p.location is not None]
+        pool = located if located else remaining
+        nxt = min(
+            pool,
+            key=lambda p: (
+                haversine_km(current.location, p.location)
+                if current.location and p.location
+                else 0.0
+            ),
+        )
+        chain.append(nxt)
+        visited.add(id(nxt))
+        remaining = [p for p in remaining if id(p) not in visited]
+        current = nxt
+    return chain
+
+
 def allocate_clusters_to_days(
     clusters: list[list],
     travel_days: int,
@@ -59,6 +118,9 @@ def allocate_clusters_to_days(
         list[length=travel_days],每一项是 list[cluster],cluster 是 list[POI]。
         days[i] = 第 i 天包含的若干 cluster(地理相邻合并)。无 POI 的天 = []。
     """
+    # 先拆分超大 cluster(如 12 个 POI 的玄武湖片区),避免 1 天塞太多
+    clusters = split_large_clusters(list(clusters))
+
     n_clusters = len(clusters)
     if n_clusters == 0 or travel_days <= 0:
         return [[] for _ in range(max(travel_days, 1))]
@@ -102,60 +164,26 @@ def allocate_clusters_to_days(
             days.append([])
         return days
 
-    # cluster 数 > 天数:贪心把相邻 cluster 合并到同一天(保留 cluster 边界)
-    days = []
-    cur_day: list[list] = []        # 当前天含的 cluster 们
-    cur_count = 0
-    cur_center = None
+    # cluster 数 > 天数:把 chain(按地理相邻排序)切成 travel_days 段。
+    # 每段 cluster 数 = base 或 base+1(base = m // d,extra 段多 1 个),
+    # 保证每段非空、不丢 cluster、整体地理连续。
+    m = len(chain)
+    base = m // travel_days
+    extra = m % travel_days  # 前 extra 段多 1 个 cluster
 
-    for idx_pos, idx in enumerate(chain):
-        c_pois = clusters[idx]
-        c_center = centers[idx]
-        c_count = len(c_pois)
+    days: list[list[list]] = []
+    ptr = 0
+    for seg in range(travel_days):
+        seg_len = base + (1 if seg < extra else 0)
+        seg_clusters: list[list] = []
+        for _ in range(seg_len):
+            seg_clusters.append(list(clusters[chain[ptr]]))
+            ptr += 1
+        days.append(seg_clusters)
 
-        is_last_day = len(days) == travel_days - 1
-        # 是否必须开始最后一天(剩的 cluster 只能塞最后一天):当已开 days 数 == days-1 时,
-        # 后续所有 cluster 必须合到 cur_day 或最后一个 day。此处用 is_last_day 近似:
-        # 若当前已是最后一个可用 day(还差一天就开满),合并阈值失效
-        must_merge = len(days) >= travel_days - 1  # 已开 days-1 天,当前只能往最后一个塞
-
-        if not cur_day:
-            cur_day.append(list(c_pois))
-            cur_count = c_count
-            cur_center = c_center
-            continue
-
-        # 距离判定:超阈值必须新开一天(除非必须合并)
-        if cur_center and c_center:
-            dist = haversine_km(cur_center, c_center)
-        else:
-            dist = 0.0
-
-        too_far = dist > SAME_DAY_MAX_KM
-        too_many = cur_count >= TARGET_POIS_PER_DAY
-
-        if not must_merge and (too_far or too_many):
-            # 新开一天
-            days.append(cur_day)
-            cur_day = [list(c_pois)]
-            cur_count = c_count
-            cur_center = c_center
-            continue
-
-        # 合并进当前天(cluster 边界保留)
-        cur_day.append(list(c_pois))
-        cur_count += c_count
-        if c_center and cur_center:
-            cur_center = (
-                (cur_center[0] * (cur_count - c_count) + c_center[0] * c_count) / cur_count,
-                (cur_center[1] * (cur_count - c_count) + c_center[1] * c_count) / cur_count,
-            )
-
-    if cur_day:
-        days.append(cur_day)
-
-    # 补齐/截断到 travel_days
-    while len(days) < travel_days:
-        days.append([])
-    days = days[:travel_days]
+    # 理论上 ptr == m;多余防御
+    if ptr < m:
+        # 有剩余(不应发生),全部并入最后一天
+        for i in range(ptr, m):
+            days[-1].append(list(clusters[chain[i]]))
     return days
