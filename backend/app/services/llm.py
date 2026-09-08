@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -31,19 +32,52 @@ def _get_client() -> AsyncOpenAI:
     return _client
 
 
+# Markdown 代码围栏:```json / ```JSON / ```(无语言标签)均可
+_FENCE_RE = re.compile(r"```(?:json)?(.*?)```", re.DOTALL | re.IGNORECASE)
+
+
+def _parse_object(s: str) -> dict | None:
+    """把 s 解析成顶层为 object 的 JSON;失败或非 object 返回 None。"""
+    try:
+        value = json.loads(s)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def extract_json(text: str) -> str:
     """
-    从字符串中提取最长的合法 JSON 对象。
+    从 LLM 响应里提取 JSON 对象字符串(返回纯 JSON,由调用方解析成目标 schema)。
 
-    Reasoning 模型(如 MiniMax-M3)的响应通常夹杂大量 thinking 块,
-    其中可能含伪 JSON(Python 字面量、JSON 片段等)。简单的 find/rfind
-    会被伪 JSON 误导。
+    模型形态不同,输出包装也不同,按成本从低到高逐层尝试:
+    1. 整体直接是 JSON 对象 — 非 reasoning 模型最常见,一次 loads 即命中;
+    2. Markdown 代码围栏 — 模型常把 JSON 包在 ```json 里,前后还夹解释性
+       文字(非 reasoning 模型尤其常见),提取围栏内容解析;
+    3. 栈式配对扫描 — reasoning 模型(如 MiniMax-M3)响应夹杂大量 thinking
+       块,其中可能含伪 JSON(Python 字面量、JSON 片段)。遍历所有 `{` 起点,
+       栈式配对找匹配的 `}`,json.loads 验证,返回最长合法对象,防伪 JSON 误导。
 
-    算法:遍历所有 `{` 起点,对每个起点用栈式配对找匹配的 `}`,
-    然后用 json.loads 验证。返回所有合法候选中最长的那个。
+    都失败时原样返回文本,由调用方(Pydantic model_validate_json)兜底。
     """
-    best = ""
+    text = text.lstrip("﻿").strip()
+    if not text:
+        return text
 
+    # 1. 整体就是纯 JSON 对象(没有前后缀、没有围栏)
+    if _parse_object(text) is not None:
+        return text
+
+    # 2. 代码围栏提取(可多个围栏,取解析成功且最长的那个)
+    valid = []
+    for m in _FENCE_RE.finditer(text):
+        content = m.group(1)
+        if _parse_object(content) is not None:
+            valid.append(content)
+    if valid:
+        return max(valid, key=len)
+
+    # 3. 栈式配对扫描(兼容 thinking 块 + 伪 JSON)
+    best = ""
     for start_pos in range(len(text)):
         if text[start_pos] != "{":
             continue

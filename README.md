@@ -130,8 +130,8 @@ LLM 只能引用候选 POI 的 `cost` 字段,不允许自报数字。`budget_ari
 - **Redis 不可用时静默降级**:`REDIS_URL` 未配置 / ping 失败时,`cache.py` 所有操作透传(`get` 返回 None,`set` / `clear` no-op),`progress.py` 降级到模块内内存 dict(`_memory_tasks`,带 asyncio.Lock 保护)。整个降级无任何副作用,**不影响主流程稳定性** — 只是重复请求会每次重新查高德,且后端重启后内存版 task 丢失(SSE 流拿到 `failed: task expired` 后前端跳回首页)。
 - **为什么不完全 no-op**:SSE 客户端订阅的 task 必须有存储,完全透传会让整个异步任务机制失效。降级到内存 dict 是最小可用方案。
 
-**8. JSON 提取的栈式配对算法**
-reasoning 模型(如 M3)的响应混杂大量 thinking 块,里面可能有伪 JSON(Python 字面量、JSON 片段)。`extract_json` 遍历所有 `{` 起点,栈式配对找匹配的 `}`,用 `json.loads` 验证,返回最长合法候选 — 不会被伪 JSON 误导。
+**8. JSON 提取的分层算法(兼容 reasoning / 非 reasoning 模型)**
+`extract_json` 按成本从低到高逐层尝试:① 整体直接是 JSON 对象(非 reasoning 模型最常见,一次 `loads` 命中)→ ② Markdown 代码围栏 ` ```json ` 提取(模型常把 JSON 包在围栏里还夹解释性文字,取解析成功且最长的围栏)→ ③ 栈式配对扫描兜底:reasoning 模型(如 M3)的响应混杂大量 thinking 块,里面可能有伪 JSON(Python 字面量、JSON 片段),遍历所有 `{` 起点栈式配对找匹配的 `}`,用 `json.loads` 验证,返回最长合法候选 — 不会被伪 JSON 误导。三层都失败时原样返回,由 Pydantic 解析兜底。
 
 **9. 坐标回填防 LLM 幻觉**
 LLM 输出 `TripPlan` 时**不**输出经纬度(怕它编),后端 `_enrich_locations` 用 name 映射回填 PlannerContext 里 POI 的真实坐标,专门给前端 `DayMap` 用。
