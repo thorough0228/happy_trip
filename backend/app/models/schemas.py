@@ -20,14 +20,12 @@ class BudgetConstraint(BaseModel):
 
 
 class TripRequest(BaseModel):
-    """用户输入的完整请求"""
+    """用户输入的完整请求(简化版:无 transportation/accommodation)"""
     destination: str = Field(min_length=1, description="目的地")
     start_date: date = Field(description="出发日期")
     travel_days: int = Field(ge=1, le=30, description="旅行天数（1-30）")
     party: Party = Field(description="人数细节")
     budget_constraint: BudgetConstraint = Field(description="预算约束")
-    transportation: Literal["flight", "train", "self_drive"] = Field(description="交通方式")
-    accommodation: Literal["hotel", "hostel", "youth_hostel"] = Field(description="住宿类型")
     preferences: list[str] = Field(default=[], description="正向偏好标签")
     negative_constraints: list[str] = Field(default=[], description="负向约束标签")
 
