@@ -176,7 +176,7 @@ async function renderRouteSegments(AMap: any) {
     const result = await getWalkingRoute(path[i], path[i + 1])
     if (result && result.coords && result.coords.length > 0) {
       realSegments.push(result.coords as [number, number][])
-    else {
+    } else {
       realSegments.push([path[i], path[i + 1]])  // 单段 fallback
     }
   }
