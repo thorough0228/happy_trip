@@ -6,26 +6,7 @@
       </template>
     </a-page-header>
 
-    <!-- DEBUG:排查 split 时段问题 -->
-    <a-alert
-      v-for="(day, idx) in plan.days"
-      :key="'dbg-' + day.date"
-      type="warning"
-      style="margin-bottom: 12px"
-      show-icon
-    >
-      <template #message>
-        <strong>DEBUG Day {{ idx + 1 }} ({{ day.date }}):</strong>
-        split1={{ day.split1 }}, split2={{ day.split2 }},
-        总景点 {{ day.attractions.length }} |
-        上午 {{ day.split1 }} 个,下午 {{ day.split2 - day.split1 }} 个,晚上 {{ day.attractions.length - day.split2 }} 个
-        <div style="margin-top: 6px; font-size: 12px">
-          景点名: {{ day.attractions.map(a => a.name).join(' / ') }}
-        </div>
-      </template>
-    </a-alert>
-
-    <!-- 每日行程 — 按时间段分组渲染 -->
+    <!-- 每日行程 — 简化版:景点列表 + 酒店区域建议 -->
     <a-card
       v-for="(day, idx) in plan.days"
       :key="day.date"
@@ -36,101 +17,40 @@
         <a-tag v-if="day.theme" color="blue" style="margin-left: 8px">{{ day.theme }}</a-tag>
       </template>
 
-      <!-- 上午段:早餐 + 上午景点 -->
-      <div class="time-segment">
-        <h4 class="segment-title">🌅 上午</h4>
-        <div v-if="day.meals.breakfast" class="meal-row">
-          <a-tag color="orange">🍳 早餐</a-tag>
-          <span><strong>{{ day.meals.breakfast.name }}</strong> · {{ day.meals.breakfast.address }} · ¥{{ day.meals.breakfast.cost }}</span>
-        </div>
-        <a-list :data-source="day.attractions.slice(0, day.split1)" size="small" :locale="{emptyText: '该时段无景点'}">
-          <template #renderItem="{ item }">
-            <a-list-item>
-              <a-list-item-meta>
-                <template #title>
-                  <strong>{{ item.name }}</strong>
-                  <a-tag v-if="item.cost === 0" color="green" style="margin-left: 8px">免费</a-tag>
-                  <a-tag v-else color="orange" style="margin-left: 8px">¥{{ item.cost }}</a-tag>
-                  <a-tag v-if="item.dist_from_prev_km !== null && item.dist_from_prev_km !== undefined" color="blue" style="margin-left: 8px">
-                    距上一段 ~{{ item.dist_from_prev_km }}km
-                  </a-tag>
-                </template>
-                <template #description>
-                  <div>{{ item.address }}</div>
-                  <div v-if="item.notes" style="color: #888; font-size: 12px; margin-top: 4px">{{ item.notes }}</div>
-                </template>
-              </a-list-item-meta>
-            </a-list-item>
-          </template>
-        </a-list>
-      </div>
+      <!-- 酒店区域建议(替代具体酒店预订) -->
+      <a-alert
+        v-if="day.hotel_area_hint"
+        type="info"
+        show-icon
+        style="margin-bottom: 12px"
+      >
+        <template #message>
+          <strong>🏨 酒店区域建议:</strong>{{ day.hotel_area_hint }}
+        </template>
+      </a-alert>
 
-      <!-- 中午/下午段:午餐 + 下午景点 -->
-      <div class="time-segment">
-        <h4 class="segment-title">☀️ 中午/下午</h4>
-        <div v-if="day.meals.lunch" class="meal-row">
-          <a-tag color="orange">🍱 午餐</a-tag>
-          <span><strong>{{ day.meals.lunch.name }}</strong> · {{ day.meals.lunch.address }} · ¥{{ day.meals.lunch.cost }}</span>
-        </div>
-        <a-list :data-source="day.attractions.slice(day.split1, day.split2)" size="small" :locale="{emptyText: '该时段无景点'}">
-          <template #renderItem="{ item }">
-            <a-list-item>
-              <a-list-item-meta>
-                <template #title>
-                  <strong>{{ item.name }}</strong>
-                  <a-tag v-if="item.cost === 0" color="green" style="margin-left: 8px">免费</a-tag>
-                  <a-tag v-else color="orange" style="margin-left: 8px">¥{{ item.cost }}</a-tag>
-                  <a-tag v-if="item.dist_from_prev_km !== null && item.dist_from_prev_km !== undefined" color="blue" style="margin-left: 8px">
-                    距上一段 ~{{ item.dist_from_prev_km }}km
-                  </a-tag>
-                </template>
-                <template #description>
-                  <div>{{ item.address }}</div>
-                  <div v-if="item.notes" style="color: #888; font-size: 12px; margin-top: 4px">{{ item.notes }}</div>
-                </template>
-              </a-list-item-meta>
-            </a-list-item>
-          </template>
-        </a-list>
-      </div>
-
-      <!-- 晚上段:晚餐 + 晚上景点(可选) -->
-      <div v-if="day.split2 < day.attractions.length || day.meals.dinner" class="time-segment">
-        <h4 class="segment-title">🌃 晚上</h4>
-        <div v-if="day.meals.dinner" class="meal-row">
-          <a-tag color="orange">🍽️ 晚餐</a-tag>
-          <span><strong>{{ day.meals.dinner.name }}</strong> · {{ day.meals.dinner.address }} · ¥{{ day.meals.dinner.cost }}</span>
-        </div>
-        <a-list :data-source="day.attractions.slice(day.split2)" size="small" :locale="{emptyText: '该时段无景点'}">
-          <template #renderItem="{ item }">
-            <a-list-item>
-              <a-list-item-meta>
-                <template #title>
-                  <strong>{{ item.name }}</strong>
-                  <a-tag v-if="item.cost === 0" color="green" style="margin-left: 8px">免费</a-tag>
-                  <a-tag v-else color="orange" style="margin-left: 8px">¥{{ item.cost }}</a-tag>
-                  <a-tag v-if="item.dist_from_prev_km !== null && item.dist_from_prev_km !== undefined" color="blue" style="margin-left: 8px">
-                    距上一段 ~{{ item.dist_from_prev_km }}km
-                  </a-tag>
-                </template>
-                <template #description>
-                  <div>{{ item.address }}</div>
-                  <div v-if="item.notes" style="color: #888; font-size: 12px; margin-top: 4px">{{ item.notes }}</div>
-                </template>
-              </a-list-item-meta>
-            </a-list-item>
-          </template>
-        </a-list>
-      </div>
-
-      <template v-if="day.hotel">
-        <a-divider style="margin: 12px 0" />
-        <h4>🏨 住宿</h4>
-        <p>
-          <strong>{{ day.hotel.name }}</strong> · {{ day.hotel.address }}<br>
-          ¥{{ day.hotel.cost }}/晚 × {{ day.hotel.nights }}晚 = <strong>¥{{ day.hotel.cost * day.hotel.nights }}</strong>
-        </p>
-      </template>
+      <h4 style="margin-top: 8px">景点(按最优路径排序)</h4>
+      <a-list :data-source="day.attractions" size="small">
+        <template #renderItem="{ item, index }">
+          <a-list-item>
+            <a-list-item-meta>
+              <template #title>
+                <a-tag color="blue" style="margin-right: 8px">{{ index + 1 }}</a-tag>
+                <strong>{{ item.name }}</strong>
+                <a-tag v-if="item.cost === 0" color="green" style="margin-left: 8px">免费</a-tag>
+                <a-tag v-else color="orange" style="margin-left: 8px">¥{{ item.cost }}</a-tag>
+                <a-tag v-if="item.dist_from_prev_km !== null && item.dist_from_prev_km !== undefined" color="cyan" style="margin-left: 8px">
+                  距上一段 ~{{ item.dist_from_prev_km }}km
+                </a-tag>
+              </template>
+              <template #description>
+                <div>{{ item.address }}</div>
+                <div v-if="item.notes" style="color: #888; font-size: 12px; margin-top: 4px">{{ item.notes }}</div>
+              </template>
+            </a-list-item-meta>
+          </a-list-item>
+        </template>
+      </a-list>
 
       <a-divider style="margin: 12px 0" />
       <h4>地图</h4>
@@ -140,13 +60,9 @@
     <!-- 预算 -->
     <a-card title="预算总览" style="margin-bottom: 16px">
       <a-row :gutter="16">
-        <a-col :span="6"><a-statistic title="景点" :value="plan.budget.total_attractions" prefix="¥" /></a-col>
-        <a-col :span="6"><a-statistic title="酒店" :value="plan.budget.total_hotels" prefix="¥" /></a-col>
-        <a-col :span="6"><a-statistic title="餐饮" :value="plan.budget.total_meals" prefix="¥" /></a-col>
-        <a-col :span="6"><a-statistic title="交通" :value="plan.budget.total_transportation" prefix="¥" /></a-col>
+        <a-col :span="12"><a-statistic title="景点门票总额" :value="plan.budget.total_attractions" prefix="¥" /></a-col>
+        <a-col :span="12"><a-statistic title="总计" :value="plan.budget.total" prefix="¥" :value-style="{ color: '#1677ff', fontSize: '24px' }" /></a-col>
       </a-row>
-      <a-divider />
-      <a-statistic title="总计" :value="plan.budget.total" prefix="¥" :value-style="{ color: '#1677ff', fontSize: '24px' }" />
     </a-card>
 
     <!-- 贴士 -->
@@ -184,19 +100,3 @@ onMounted(() => {
   }
 })
 </script>
-
-<style scoped>
-.time-segment {
-  margin-bottom: 16px;
-}
-.time-segment .segment-title {
-  margin-bottom: 8px;
-  color: #333;
-}
-.meal-row {
-  margin: 8px 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-</style>

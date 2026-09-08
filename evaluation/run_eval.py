@@ -30,7 +30,7 @@ from app.agents.planner import plan_trip
 from app.core import redis_client
 from app.models.schemas import TripPlan, TripRequest
 from app.planner.context import build_context
-from app.planner.validation import PLACEHOLDER_MEALS, validate_plan
+from app.planner.validation import validate_plan
 
 EVAL_SET_PATH = Path(__file__).parent / "eval_set.jsonl"
 REPORT_PATH = Path(__file__).parent / "eval_report.json"
@@ -55,15 +55,10 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
         "json_parse_ok",
         "schema_valid",
         "attraction_in_candidates",
-        "hotel_in_candidates",
-        "meal_in_candidates",
-        "meal_grounding_ok",
-        "meal_specific_ok",
         "budget_arithmetic_consistent",
         "budget_within_constraint",
         "budget_utilization_ok",
         "days_count_match",
-        "hotel_nights_match",
         "attraction_count_ok",
         "route_optimized_ok",
         "time_check_ok",
@@ -90,10 +85,8 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     metrics["json_parse_ok"] = True
     metrics["schema_valid"] = True
 
-    # 候选集
+    # 候选集(只保留 attractions,系统不再规划 hotel/meal)
     attraction_names = {p.name for p in ctx.attractions}
-    hotel_names = {p.name for p in ctx.hotels}
-    food_names = {p.name for p in ctx.food}
 
     # 候选约束
     if all(a.name in attraction_names for a in plan.days[0].attractions):
@@ -103,36 +96,10 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
         else:
             metrics["attraction_in_candidates"] = True
 
-    if all(
-        (day.hotel is None or day.hotel.name in hotel_names)
-        for day in plan.days
-    ):
-        metrics["hotel_in_candidates"] = True
-
-    meal_in_ok = True
-    meal_grounding_ok = True
-    meal_specific_ok = True
-    for day in plan.days:
-        for meal_type, meal in day.meals.items():
-            if meal is None:
-                continue
-            if meal.name not in food_names:
-                meal_in_ok = False
-            if meal_type in ("lunch", "dinner") and meal.name not in food_names:
-                meal_grounding_ok = False
-            if meal.name.strip() in PLACEHOLDER_MEALS:
-                meal_specific_ok = False
-    metrics["meal_in_candidates"] = meal_in_ok
-    metrics["meal_grounding_ok"] = meal_grounding_ok
-    metrics["meal_specific_ok"] = meal_specific_ok
-
-    # 预算一致性
+    # 预算一致性(简化版:只有 total_attractions 一项)
     b = plan.budget
-    items_sum = (
-        b.total_attractions + b.total_hotels + b.total_meals + b.total_transportation
-    )
-    if items_sum > 0:
-        if abs(b.total - items_sum) / items_sum <= 0.05:
+    if b.total_attractions > 0:
+        if abs(b.total - b.total_attractions) / b.total_attractions <= 0.05:
             metrics["budget_arithmetic_consistent"] = True
 
     # 预算不超
@@ -142,15 +109,6 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     # 天数匹配
     if len(plan.days) == req.travel_days:
         metrics["days_count_match"] = True
-
-    # 酒店晚数(语义修正):sum(days[i].hotel.nights) == travel_days - 1
-    # 因为 LLM 可能在每晚都输出 nights=1(同一家酒店连住),而不是每晚输出总晚数
-    total_nights = sum(
-        (day.hotel.nights if day.hotel else 0) for day in plan.days
-    )
-    expected_nights = max(1, req.travel_days - 1)
-    if total_nights == expected_nights:
-        metrics["hotel_nights_match"] = True
 
     # 每天至少 1 个景点
     if all(len(day.attractions) >= 1 for day in plan.days):
@@ -180,11 +138,9 @@ async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
     # hard_pass = 所有硬指标都通过
     hard_keys = [
         "json_parse_ok", "schema_valid", "attraction_in_candidates",
-        "hotel_in_candidates", "meal_in_candidates", "meal_grounding_ok",
-        "meal_specific_ok", "budget_arithmetic_consistent",
-        "budget_within_constraint", "budget_utilization_ok", "days_count_match",
-        "hotel_nights_match", "attraction_count_ok", "route_optimized_ok",
-        "time_check_ok",
+        "budget_arithmetic_consistent", "budget_within_constraint",
+        "budget_utilization_ok", "days_count_match", "attraction_count_ok",
+        "route_optimized_ok", "time_check_ok",
     ]
     metrics["hard_pass"] = all(metrics[k] for k in hard_keys)
 
@@ -218,11 +174,9 @@ async def main_async():
     # 汇总
     metric_keys = [
         "json_parse_ok", "schema_valid", "attraction_in_candidates",
-        "hotel_in_candidates", "meal_in_candidates", "meal_grounding_ok",
-        "meal_specific_ok", "budget_arithmetic_consistent",
-        "budget_within_constraint", "budget_utilization_ok", "days_count_match",
-        "hotel_nights_match", "attraction_count_ok", "route_optimized_ok",
-        "time_check_ok", "hard_pass",
+        "budget_arithmetic_consistent", "budget_within_constraint",
+        "budget_utilization_ok", "days_count_match", "attraction_count_ok",
+        "route_optimized_ok", "time_check_ok", "hard_pass",
     ]
     summary = {
         "total_cases": len(per_case),

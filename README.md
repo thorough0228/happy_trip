@@ -26,12 +26,12 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 大多数 LLM 旅行助手是"凭印象编造行程"的赌博 — 景点可能不存在,价格随便估,酒店名是幻觉。Happy Trip 把一次旅行拆成可追溯、可校验、可评测的过程:
 
 - 🧠 **PlannerContext 协议** — 外部事实(高德 POI / 天气 / 票价)由程序收集并打包,LLM 只在事实范围内编排,事实不会被"创作"
-- 🛡️ **双轨防御** — prompt 软约束 + 15 项硬规则校验 + 反思重试循环,既靠 LLM 自觉也靠程序强制
+- 🛡️ **双轨防御** — prompt 软约束 + 7 项硬规则校验 + 反思重试循环,既靠 LLM 自觉也靠程序强制
 - 💰 **预算账本** — 酒店估价、票价、规则餐饮全部由代码算,LLM 不允许自报数字,杜绝价格幻觉
 - 🌧️ **天气感知行程** — Intent 阶段拉高德实时天气,雨天引导 LLM 优先安排室内景点
 - ⚡ **异步任务 + SSE 推送** — `POST /api/trip/plan` 立即返回 task_id,前端订阅 SSE 拿实时进度和最终结果,不再 30~90 秒干等
 - 🗄️ **Redis 后端(可选)** — 高德 POI/天气缓存 + 任务状态走 Redis;未配置或不可用时静默降级,主流程不受影响
-- 🧪 **可量化质量** — 20 条冻结样本、15 项硬规则、45-55% hard_pass 稳态,跑多次取平均,质量可追溯
+- 🧪 **可量化质量** — 20 条冻结样本、7 项硬规则、45-55% hard_pass 稳态,跑多次取平均,质量可追溯
 
 所有景点与餐厅数据均来自**高德真实 POI**;所有价格来自**静态票价表 + 规则估价**;LLM 输出的每一项都能在 PlannerContext 里找到出处。
 
@@ -91,7 +91,7 @@ _enrich_locations                          前端 Result.vue 渲染行程
 | 异步推送    | sse-starlette `EventSourceResponse` |
 | 前端      | Vue 3 + TypeScript + Vite + Ant Design Vue |
 | 前端地图    | 高德 Web JS API(动态加载) |
-| 评估脚本    | Python(规则评测,15 项硬指标) |
+| 评估脚本    | Python(规则评测,7 项硬指标) |
 
 ---
 
@@ -104,7 +104,7 @@ _enrich_locations                          前端 Result.vue 渲染行程
 
 **2. 双轨防御 — 软约束 + 硬规则 + Reviewer 软提示**
 - **prompt 软约束**:`build_prompt` 的 system 部分枚举 9 条硬性指令(候选约束、价格约束、多样性、餐饮 grounding 等),引导 LLM 自觉
-- **15 项硬规则**:`validate_plan` 跑候选约束、预算一致性、预算利用率、路径优化、Time Check、天数匹配、餐厅多样性等确定性检查
+- **7 项硬规则**:`validate_plan` 跑候选约束、预算一致性、预算利用率、路径优化、Time Check、天数匹配、景点多样性等确定性检查
 - **Reviewer 软提示(替代反思重试)**:业务校验不通过**不再让 LLM 重生成**,而是由 `agents/reviewer.py` 单独调一次 LLM,基于错误列表生成 2-4 条中文警告追加到 `TripPlan.notes`。这样省 token(避免 1 次失败触发 2-3 次 LLM 重生成),且保留可观测性(用户能看到具体哪里不准确)
 - **Pydantic schema 失败仍重试**:JSON 损坏 / 字段缺失是致命错,保留 1 次重试
 
@@ -131,25 +131,18 @@ LLM 只能引用候选 POI 的 `cost` 字段,不允许自报数字。`budget_ari
 - **Redis 不可用时静默降级**:`REDIS_URL` 未配置 / ping 失败时,`cache.py` 所有操作透传(`get` 返回 None,`set` / `clear` no-op),`progress.py` 降级到模块内内存 dict(`_memory_tasks`,带 asyncio.Lock 保护)。整个降级无任何副作用,**不影响主流程稳定性** — 只是重复请求会每次重新查高德,且后端重启后内存版 task 丢失(SSE 流拿到 `failed: task expired` 后前端跳回首页)。
 - **为什么不完全 no-op**:SSE 客户端订阅的 task 必须有存储,完全透传会让整个异步任务机制失效。降级到内存 dict 是最小可用方案。
 
-**8. 多关键词餐饮召回**
-高德餐饮 POI 在中型城市候选池偏小(丽江、大理 meal_in_candidates 通过率约 70%)。`search_food` 用 4 个默认桶(`餐厅` / `美食` / `本地特色` / `小吃`)分别搜索,合并去重,比单关键词召回多 2-3 倍候选。
-
-**9. JSON 提取的栈式配对算法**
+**8. JSON 提取的栈式配对算法**
 reasoning 模型(如 M3)的响应混杂大量 thinking 块,里面可能有伪 JSON(Python 字面量、JSON 片段)。`extract_json` 遍历所有 `{` 起点,栈式配对找匹配的 `}`,用 `json.loads` 验证,返回最长合法候选 — 不会被伪 JSON 误导。
 
-**10. 坐标回填防 LLM 幻觉**
+**9. 坐标回填防 LLM 幻觉**
 LLM 输出 `TripPlan` 时**不**输出经纬度(怕它编),后端 `_enrich_locations` 用 name 映射回填 PlannerContext 里 POI 的真实坐标,专门给前端 `DayMap` 用。
 
-**11. 路径优化(景点 + 三餐联合)**
-完整路径模型 = `hotel → breakfast → 上午景点 → lunch → 下午景点 → dinner → 晚上景点 → hotel`。算法枚举**两个切分点** (morning/afternoon/evening 三段)+ 3 段子排列,选总路径最短。Meals 强制插入路径,保证"去完哪些景点后去哪吃饭"的地理合理性。
-evening 段是**可选项** — 实际场景里夜市、夫子庙、城市阳台、灯光秀等适合晚上逛就放输出末尾让算法识别;若当天全部白天景点,evening 段为 0(下午逛完直接回酒店),算法自动处理。
-**分段硬约束**(防 LLM 误把所有景点都归 evening):
-- 上午 ≥ 1 个景点(`MIN_MORNING_N = 1`)
-- 晚上 ≤ 2 个景点(`MAX_EVENING_N = 2`)
-这些约束在 split 枚举时强制过滤,不依赖 LLM 输出顺序,即使 LLM 把所有景点标 evening 也至少 1 个白天景点、晚上最多 2 个。
-复杂度 `O(N² × max(k1! × k2! × k3!))`,N ≤ 10 暴力枚举精确最优(N=10 ~18k 次距离计算,~10 ms)。
-前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。**Polyline 包含完整路径节点**:hotel → breakfast → 上午景点 → lunch → 下午景点 → dinner → 晚上景点 → hotel(三段 + 三餐)。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
-`Result.vue` 按上午 / 中午 / 晚上三个时段分块渲染景点列表,meal 作为时段入口。每段卡片独立显示,evening 段可选(为空则不显示)。
+**10. 路径优化(简化版)**
+完整路径 = `A1 → A2 → ... → AN`,无起终点约束。算法暴力枚举全排列(N ≤ 7)或 2-opt 多起点(N > 7),选 haversine 总路径最短。
+**无 hotel 起终点约束,无 meal 节点** — 系统不规划餐饮和具体酒店,纯景点路径优化。
+复杂度 N ≤ 7 暴力枚举(N! ≤ 5040),N > 7 用 2-opt 多起点(1 原始 + 20 随机起点),保证 `best ≤ original`。
+前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
+`Result.vue` 简化渲染:每天一个卡片,顶部显示 hotel_area_hint(LLM 建议的酒店区域),下方是按路径最优排序的景点列表。
 
 **12. Time Check Agent(开放时间验证)**
 独立 Agent 验证 plan 中每个景点的开放时间是否与行程日期冲突(闭馆日、营业时段、节假日)。CoT 推理 → 输出 conflicts → 嵌入主循环共用重试 budget(reviewer 不管时间)。POI.opening_hours 字段从高德 V3 `business.opening_hours` 解析,缺失则跳过(降级不报错)。职责分离避免 reviewer 与 Time Check 双重干预震荡。
@@ -279,7 +272,7 @@ happy_trip/
 │   │   │   ├── geo.py               # haversine 球面距离工具
 │   │   │   ├── optimize.py          # 单天路径优化(morning/afternoon/evening 三段 + 三餐 + haversine)
 │   │   │   ├── pricing.py           # 票价表 + 酒店/餐饮规则估价
-│   │   │   └── validation.py        # 15 项硬规则校验
+│   │   │   └── validation.py        # 7 项硬规则校验
 │   │   └── services/
 │   │       ├── amap.py              # 高德 V3 HTTP(async,httpx.AsyncClient)
 │   │       ├── llm.py               # AsyncOpenAI + JSON 提取
@@ -331,12 +324,12 @@ happy_trip/
                        │
             ┌──────────┴──────────┐
             ▼                     ▼
-    15 项硬规则(G1-G15)      候选约束 / 预算算术 / 利用率 / 路径优化 / Time Check
+    7 项硬规则(G1-G7)        候选约束 / 预算算术 / 利用率 / 路径优化 / Time Check / 天数 / 景点数
     (确定性,零 LLM 成本)      / 餐厅多样性
 ```
 
 - **输入冻结**:20 条样本覆盖 11 个城市、3 种人数类型、确定可复现
-- **纯确定性评分**:15 项硬规则全部由 Python 代码执行,不依赖 LLM 评委,跑一次评测零额外 API 成本
+- **纯确定性评分**:7 项硬规则全部由 Python 代码执行,不依赖 LLM 评委,跑一次评测零额外 API 成本
 - **业务校验不重试**:`hard_pass` 反映的是 LLM 一次输出的合规度(plan 仍可能带 reviewer 软警告)。多次跑取平均以减少 LLM 随机性影响
 
 ### 核心指标
@@ -346,18 +339,14 @@ happy_trip/
 | `json_parse_ok` | LLM 输出能解析为合法 JSON |
 | `schema_valid` | Pydantic schema 校验通过 |
 | `attraction_in_candidates` | 景点名在候选 POI 列表中 |
-| `hotel_in_candidates` | 酒店名在候选 POI 列表中 |
-| `meal_in_candidates` | 餐厅名在候选 POI 列表中 |
-| `meal_grounding_ok` | 早午晚三餐都命中候选,不是占位词 |
-| `budget_arithmetic_consistent` | `budget.total = 各项加总(±5%)` |
+| `budget_arithmetic_consistent` | `budget.total = total_attractions(±5%)` |
 | `budget_within_constraint` | 总预算不超用户预算上限 |
 | `budget_utilization_ok` | `total / 用户预算 ≥ 80%`(统一阈值),防 LLM 偷懒出低价 |
 | `days_count_match` | `days` 数组长度 = `travel_days` |
-| `hotel_nights_match` | 酒店晚数合计 = `travel_days - 1` |
 | `attraction_count_ok` | 每天至少 1 个景点 |
 | `route_optimized_ok` | 至少一条 `dist_from_prev_km > 0`(后端确实跑了路径优化) |
 | `time_check_ok` | ctx 中至少一个 POI 有 `opening_hours`(高德返回了营业时间数据,Time Check 有数据可查) |
-| `hard_pass` | 上面 15 项硬指标全部通过 |
+| `hard_pass` | 上面 7 项硬指标全部通过 |
 
 ### 快速运行
 
@@ -373,7 +362,7 @@ python -m evaluation.run_eval
 
 ### 已知限制
 
-- **中型城市 POI 候选不足**:丽江、大理等城市的餐饮 POI 候选池较小,`meal_in_candidates` 通过率约 70%
+- **中型城市 POI 候选不足**:丽江、大理等城市的候选池较小,`attraction_in_candidates` 通过率约 70-85%
 - **LLM thinking 关闭对 M3 部分生效**:响应时间从 30s 降到 ~18s,但完全关闭依赖 minimax 服务端支持
 - **Redis 不可用时降级为内存版 task dict**:后端重启后 task 丢失,SSE 流拿到 `failed: task expired` 后前端跳回首页;重启前已完成的任务不受影响
 

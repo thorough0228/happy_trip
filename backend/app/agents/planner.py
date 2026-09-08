@@ -22,36 +22,22 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
 
     hard_constraint = (
         "【硬约束 - 必须严格遵守】\n"
-        "1. 景点/酒店/餐厅 必须从【可用候选列表】中选择,不得编造候选中不存在的名字。\n"
+        "1. 景点 必须从【可用候选列表】中选择,不得编造候选中不存在的名字。\n"
         "2. 选定后,name/address 必须原样复制候选,不得修改或编造。\n"
-        "3. 候选列表外的名字,只能通过 notes 提及,不得放进 attractions/hotel/meals 数组。\n"
-        "4. 如果某类候选为空,可基于真实存在的知名地点生成,但要在 notes 里说明'非候选'。\n"
-        "5. 预算总额不得超过用户提供的总预算,各项明细要合理。\n"
-        "6. 【价格约束 - L6 新增】价格必须使用候选 POI 的 cost 字段,不得自行估算或编造。\n"
-        "   - 景点:复制候选 cost(免费则 0)\n"
-        "   - 酒店:cost 已是每晚估价,hotel.cost 直接使用\n"
-        "   - 餐饮:cost 已是规则估价(单人单餐)\n"
-        "7. budget.total 必须等于 attractions+hotels+meals+transportation 明细之和,允许 ±5% 误差。\n"
-        "8. 【多样性约束 - L8+L9 新增】同一餐厅不得在多餐重复出现(包括同一天的早午晚、不同天之间)。\n"
-        "9. 【餐饮 grounding 加严 - L10.B 优化】午餐和晚餐必须 100% 命中候选列表中的餐厅。\n"
-        "   早餐可以是候选中的餐厅,也可以是酒店早餐 fallback(在 notes 里说明)。\n"
-        "   如果候选里没有符合用户 cuisine 偏好的餐厅,选最接近的当地特色餐厅,绝不允许编造餐厅名。\n"
-        "   早午晚三餐之间、不同日期之间,餐厅应尽量多样化。\n"
-        "9. 【少快餐约束】尽量减少选择肯德基、麦当劳、必胜客、星巴克等连锁快餐店。\n"
-        "   优先选择本地特色餐厅、正餐品牌或非连锁餐饮。如果必须用快餐,每份行程最多 1 次。\n"
-        "10. 【预算利用率 - 防 LLM 偷懒】budget.total 应至少达到用户预算的 80%,\n"
+        "3. 候选列表外的名字,只能通过 notes 提及,不得放进 attractions 数组。\n"
+        "4. 如果候选为空,可基于真实存在的知名地点生成,但要在 notes 里说明'非候选'。\n"
+        "5. 预算总额不得超过用户提供的总预算。\n"
+        "6. 【价格约束】价格必须使用候选 POI 的 cost 字段,不得自行估算或编造(免费则 0)。\n"
+        "7. budget.total_attractions 必须等于 attractions 各 cost 之和(±5%)。\n"
+        "8. 【多样性约束 -】同一景点不得在同一天重复出现(改道/换角度不算)。\n"
+        "9. 【预算利用率 - 防 LLM 偷懒】budget.total_attractions 应至少达到用户预算的 80%,\n"
         "    不应远低于用户预期(LLM 倾向保守出低价)。\n"
-        "    在景点门票、酒店档次、餐饮规格上合理分配,让总成本贴近用户预算,\n"
-        "    但不必花满 — 用户预算允许有一定的节约空间。\n"
-        "11. 【景点时段排布 — 路径优化需要】每天的 attractions 数组按时间顺序输出:\n"
-        "    - 适合白天的景点放前面(博物馆、公园、寺庙、古迹等)\n"
-        "    - 适合晚上的景点放最后(夜市、夫子庙、城市阳台、灯光秀、酒吧街等)\n"
-        "    后端会按 [morning | afternoon | evening] 三段切分路径,晚餐插在 afternoon 和 evening 之间。\n"
-        "    如果当天没有 evening 景点(全部白天逛完回酒店),那就让 evening 段为空,算法会自动处理。\n"
+        "    在景点门票档次上合理分配,让总成本贴近用户预算,但不必花满。\n"
     )
 
     system_prompt = (
-        "你是一位专业的旅行规划助手。你的任务是基于 PlannerContext 中的真实事实,为用户编排一份详细、合理的行程计划。\n\n"
+        "你是一位专业的旅行规划助手。你的任务是基于 PlannerContext 中的真实事实,为用户编排景点游览计划。\n"
+        "**本系统不规划餐饮,也不指定具体酒店** — 只规划去哪里玩,并在每天结尾给一个酒店区域建议。\n\n"
         + hard_constraint + "\n"
         "【PlannerContext - 所有事实来源】\n"
         + ctx.summary() + "\n\n"
@@ -79,28 +65,16 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "          \"cost\": 花费(数字,>=0),\n"
         "          \"notes\": \"备注(字符串,可为 null)\"\n"
         "        }\n"
-        "        // 可多个\n"
+        "        // 可多个,后端会自动按地理最优排序\n"
         "      ],\n"
-        "      \"meals\": {\n"
-        "        \"breakfast\": {\"name\": \"餐厅名\", \"address\": \"地址\", \"cost\": 数字},\n"
-        "        \"lunch\": {\"name\": \"...\", \"address\": \"...\", \"cost\": 数字},\n"
-        "        \"dinner\": {\"name\": \"...\", \"address\": \"...\", \"cost\": 数字}\n"
-        "      },\n"
-        "      \"hotel\": {\n"
-        "        \"name\": \"酒店名\",\n"
-        "        \"address\": \"地址\",\n"
-        "        \"cost\": 每晚费用(数字),\n"
-        "        \"nights\": 入住晚数(整数)\n"
-        "      }  // 若当天无住宿,可为 null\n"
+        "      \"hotel_area_hint\": \"酒店区域建议(字符串)\"\n"
+        "      // 例:\"建议住在春熙路/太古里附近,出行方便\"\n"
         "    }\n"
         "    // 天数需等于用户要求的 travel_days\n"
         "  ],\n"
         "  \"budget\": {\n"
-        "    \"total_attractions\": 数字,\n"
-        "    \"total_hotels\": 数字,\n"
-        "    \"total_meals\": 数字,\n"
-        "    \"total_transportation\": 数字,\n"
-        "    \"total\": 数字(等于上述四项之和)\n"
+        "    \"total_attractions\": 数字(景点门票总额),\n"
+        "    \"total\": 数字(等于 total_attractions)\n"
         "  },\n"
         "  \"notes\": [\"贴士1\", \"贴士2\", ...]\n"
         "}\n\n"
@@ -108,8 +82,9 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "- 所有数字必须 >= 0。\n"
         "- 日期格式必须为 YYYY-MM-DD。\n"
         "- 天数必须等于用户要求的 travel_days。\n"
-        "- 预算明细应合理分配,且总和不应超过用户总预算(但不必完全相等,需在合理范围内)。\n"
-        "- 住宿类型需匹配用户选择的 accommodation(酒店/民宿/青旅),交通方式需匹配 transportation。\n"
+        "- attractions 数量参考 LLM 自定(每天 2-6 个常见),后端会自动按 haversine 最短路径重排。\n"
+        "- budget.total_attractions 应在用户预算的 80% 以上(用足预算)。\n"
+        "- hotel_area_hint 是自然语言建议,不是候选池中的具体酒店;用户自己根据建议订房。\n"
         "- 请根据用户偏好(preferences)和负面约束(negative_constraints)调整景点、餐饮推荐。\n"
         "- 输出必须合法 JSON,键名和嵌套结构与上述示例完全一致。"
     )
@@ -121,8 +96,6 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         f"- 旅行天数:{req.travel_days} 天\n"
         f"- 人数:成人 {req.party.adults} 人,儿童 {req.party.children} 人,老人 {req.party.elders} 人(总 {req.party.total} 人),出行类型:{req.party.companion_type}\n"
         f"- 总预算:{req.budget_constraint.amount} 元\n"
-        f"- 交通方式:{req.transportation}\n"
-        f"- 住宿类型:{req.accommodation}\n"
         f"- 偏好:{', '.join(req.preferences) if req.preferences else '无特别偏好'}\n"
         f"- 负面约束:{', '.join(req.negative_constraints) if req.negative_constraints else '无'}\n"
         "\n请严格按照上述 JSON 格式输出完整行程计划。"
@@ -269,24 +242,14 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
 
 def _enrich_locations(plan, ctx) -> None:
     """
-    把 ctx 里的 POI 坐标填到 plan 里,给前端地图用。
+    把 ctx 里的景点坐标填到 plan 里,给前端地图用。
 
     LLM 输出 TripPlan 时不输出坐标(怕它编),后端基于 name 映射回填真实坐标。
+    系统不再规划酒店和餐厅,只 enrich attractions。
     """
-    name_to_loc = {}
-    for p in ctx.attractions:
-        name_to_loc[p.name] = p.location
-    for p in ctx.hotels:
-        name_to_loc[p.name] = p.location
-    for p in ctx.food:
-        name_to_loc[p.name] = p.location
+    name_to_loc = {p.name: p.location for p in ctx.attractions}
 
     for day in plan.days:
         for a in day.attractions:
             if a.location is None and a.name in name_to_loc:
                 a.location = name_to_loc[a.name]
-        if day.hotel and day.hotel.location is None:
-            day.hotel.location = name_to_loc.get(day.hotel.name)
-        for meal in day.meals.values():
-            if meal and meal.location is None:
-                meal.location = name_to_loc.get(meal.name)

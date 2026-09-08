@@ -1,247 +1,134 @@
 """
-单天路线优化。
+单天路线优化(简化版)。
 
-完整路径模型(三段 + 三餐):
-  hotel → breakfast → 上午景点 → lunch → 下午景点 → dinner → 晚上景点 → hotel
-
-为什么不"晚餐后回酒店":实际场景里夜市、夫子庙、城市阳台、灯光秀等都是晚上活动,
-晚上逛完才回酒店。evening 段是**可选项**,全部白天景点就让 evening 为空,
-算法自动处理(无 evening 段就是下午结束直接回酒店)。
-
-分段约束(避免 LLM 把所有景点都放 evening):
-- 上午(morning)至少 MIN_MORNING_N 个景点(默认 1)
-- 晚上(evening)最多 MAX_EVENING_N 个景点(默认 2)
-- 白天(afternoon)无硬约束,可灵活切分
-
-这些约束在 split 枚举时强制过滤,不依赖 LLM 输出顺序。
+设计:不再管餐饮/酒店,只优化景点顺序。
+完整路径 = A1 → A2 → ... → → AN,无起终点约束。
+总路径 = Σ haversine(A_i, A_{i+1})
 
 自适应算法:
-- N ≤ BRUTE_FORCE_MAX_N (10):暴力枚举所有满足约束的 (split1, split2) × 3 段子排列
-- N > 10:罕见,LLM 受 prompt 约束一般不会输出这么多景点,直接保留 LLM 顺序
+- N ≤ BRUTE_FORCE_MAX_N (7):暴力枚举全排列,精确最优(N! ≤ 5040)
+- N > 7:2-opt 多起点(1 原始 + N_RESTARTS 随机起点),O(N² × restarts)
 
-暴力枚举在 splits 维度受限,不会像单层 N! 那样爆炸。
+dist_from_prev_km 重算:
+- 第一个景点 = None(无"前一个节点")
+- 第 2..N 个 = haversine(前一景点, 当前景点)
 """
-from dataclasses import dataclass
+import random
 from itertools import permutations
 
 from app.models.schemas import Day
 from app.planner.geo import haversine_km
 
-# N ≤ 10 走暴力;split 组合 = O(N²),子排列 ≤ O(N!),总开销合理
-BRUTE_FORCE_MAX_N = 10
+# N > 7 时,N! 超过 5040,单次 2-opt 优势明显;N ≤ 7 时暴力枚举保证精确最优
+BRUTE_FORCE_MAX_N = 7
 
-# 分段约束
-MIN_MORNING_N = 1   # 上午至少 1 个景点(避免全 evening)
-MAX_EVENING_N = 2    # 晚上最多 2 个景点(夜市+灯光秀 之类)
+# 2-opt 多起点次数。随机起点越多越接近最优,但计算量线性增加。
+N_RESTARTS = 20
 
-
-@dataclass
-class _OptimResult:
-    perm: list                  # 最佳 attractions 排列(整体)
-    split1: int                 # morning 结束位置(午餐前),[0..N]
-    split2: int                 # afternoon 结束位置(晚餐前),[split1..N]
+# 2-opt 单起点最大迭代轮数,防止极端情况下死循环(基本不会触发,但兜底)
+MAX_ITERS = 50
 
 
 def optimize_day(day: Day) -> tuple[Day, float]:
     """
-    优化单天景点顺序。完整路径含 3 段 3 餐:
-    hotel → breakfast → morning → lunch → afternoon → dinner → evening → hotel
+    优化单天景点顺序。简化版:无 hotel 起终点,无 meal 节点。
 
     Returns:
         (优化后的 Day, 原始总 km — 仅用于评测对照,不写入 plan)
     """
     atts = day.attractions
-    hotel_loc = day.hotel.location if day.hotel and day.hotel.location else None
+    if len(atts) < 2:
+        _fill_dists(atts)
+        return day, _path_km(atts)
 
-    if len(atts) < MIN_MORNING_N + 1:
-        # 景点太少(< MIN_MORNING_N + 1 个),无法满足"白天 ≥ 1"且"晚上 ≥ 0"的约束
-        # 退化处理 — 全部归 afternoon,evening 空
-        _fill_dists(atts, 0, len(atts), day.meals, hotel_loc)
-        return day, _total_path_km(atts, 0, len(atts), day.meals, hotel_loc)
+    if len(atts) <= BRUTE_FORCE_MAX_N:
+        best_perm = _brute_force(atts)
+    else:
+        best_perm = _two_opt_multi(atts)
 
-    # 优化路径
-    result = _optimize(atts, day.meals, hotel_loc)
-
-    # 写回 dist_from_prev_km
-    _fill_dists(result.perm, result.split1, result.split2, day.meals, hotel_loc)
-
-    # 原始总路径 km(供评测对照,假设全在 evening)
-    original_km = _total_path_km(atts, len(atts), len(atts), day.meals, hotel_loc)
+    _fill_dists(best_perm)
+    original_km = _path_km(atts)
 
     return Day(
         date=day.date,
         theme=day.theme,
-        attractions=result.perm,
-        meals=day.meals,
-        hotel=day.hotel,
-        split1=result.split1,
-        split2=result.split2,
+        attractions=best_perm,
+        hotel_area_hint=day.hotel_area_hint,
     ), original_km
 
 
-def _optimize(atts: list, meals: dict, hotel_loc: tuple | None) -> _OptimResult:
-    """N ≤ 10 走暴力;N > 10 保留 LLM 顺序。"""
-    if len(atts) > BRUTE_FORCE_MAX_N:
-        return _OptimResult(perm=list(atts), split1=len(atts), split2=len(atts))
-    return _brute_force_optimize(atts, meals, hotel_loc)
-
-
-def _brute_force_optimize(atts: list, meals: dict, hotel_loc: tuple | None) -> _OptimResult:
-    """枚举切分点 (split1, split2) × 3 段子排列,选总路径最短。"""
-    N = len(atts)
+def _brute_force(atts: list) -> list:
+    """暴力枚举所有排列,选 haversine 总距最短(N ≤ 7 时使用)。"""
+    original_km = _path_km(atts)
     best_perm = list(atts)
-    best_km = float("inf")
-    best_split1 = N
-    best_split2 = N
-
-    # split1 ∈ [MIN_MORNING_N, N - 1]: 上午 ≥ 1 个景点(晚上也至少 0)
-    # split2 ∈ [max(split1, N - MAX_EVENING_N), N]: 晚上 ≤ MAX_EVENING_N 个景点
-    # 这样 morning ≥ MIN_MORNING_N、evening ≤ MAX_EVENING_N 强制约束
-    split1_min = MIN_MORNING_N
-    split1_max = N - 1  # 至少留 1 给 afternoon 或 evening
-    split2_min_base = N - MAX_EVENING_N  # 晚上最多 MAX_EVENING_N
-
-    for split1 in range(split1_min, split1_max + 1):
-        # split2 下限:max(split1, N - MAX_EVENING_N)
-        split2_min = max(split1, split2_min_base)
-        split2_max = N
-        for split2 in range(split2_min, split2_max + 1):
-            morning = atts[:split1]
-            afternoon = atts[split1:split2]
-            evening = atts[split2:]
-
-            # 暴力枚举 3 段子排列(空列表 → 单个 () 排列)
-            m_perms = list(permutations(morning)) or [()]
-            a_perms = list(permutations(afternoon)) or [()]
-            e_perms = list(permutations(evening)) or [()]
-
-            for m_perm in m_perms:
-                for a_perm in a_perms:
-                    for e_perm in e_perms:
-                        perm = list(m_perm) + list(a_perm) + list(e_perm)
-                        km = _total_path_km(perm, split1, split2, meals, hotel_loc)
-                        if km < best_km - 1e-9:
-                            best_km = km
-                            best_perm = list(perm)
-                            best_split1 = split1
-                            best_split2 = split2
-
-    return _OptimResult(perm=best_perm, split1=best_split1, split2=best_split2)
+    best_km = original_km
+    for perm in permutations(atts):
+        km = _path_km(list(perm))
+        if km < best_km - 1e-9:
+            best_km = km
+            best_perm = list(perm)
+    return best_perm
 
 
-def _total_path_km(
-    atts_perm: list,
-    split1: int,
-    split2: int,
-    meals: dict,
-    hotel_loc: tuple | None,
-) -> float:
-    """
-    完整路径:hotel → breakfast → morning → lunch → afternoon → dinner → evening → hotel
-    返回 haversine 总距离(km)。所有 None 节点自动跳过。
-    """
-    breakfast = meals.get("breakfast")
-    lunch = meals.get("lunch")
-    dinner = meals.get("dinner")
+def _two_opt(atts: list, max_iters: int = MAX_ITERS) -> list:
+    """单起点 2-opt 局部搜索。返回局部最优排列(可能不是全局最优)。"""
+    current = list(atts)
+    if len(current) < 4:
+        return current
 
+    best_km = _path_km(current)
+    improved = True
+    iters = 0
+
+    while improved and iters < max_iters:
+        improved = False
+        iters += 1
+        for i in range(len(current) - 1):
+            for j in range(i + 2, len(current)):
+                # 2-opt:翻转 [i+1, j+1] 段
+                candidate = current[: i + 1] + list(reversed(current[i + 1 : j + 1])) + current[j + 1 :]
+                cand_km = _path_km(candidate)
+                if cand_km < best_km - 1e-9:
+                    current = candidate
+                    best_km = cand_km
+                    improved = True
+
+    return current
+
+
+def _two_opt_multi(atts: list, restarts: int = N_RESTARTS) -> list:
+    """多起点 2-opt。从原始顺序 + restarts 个随机顺序出发,选最优。"""
+    best = _two_opt(atts)
+    best_km = _path_km(best)
+
+    for _ in range(restarts):
+        random_start = list(atts)
+        random.shuffle(random_start)
+        candidate = _two_opt(random_start)
+        cand_km = _path_km(candidate)
+        if cand_km < best_km - 1e-9:
+            best = candidate
+            best_km = cand_km
+
+    return best
+
+
+def _path_km(atts: list) -> float:
+    """累计相邻两点的 haversine 距离(km)。第一个景点为 None。"""
     total = 0.0
-    prev_loc: tuple | None = hotel_loc
-
-    if breakfast and breakfast.location:
-        total += _add(prev_loc, breakfast.location)
-        prev_loc = breakfast.location
-
-    # 上午景点 (split1 个)
-    for i in range(split1):
-        a = atts_perm[i]
+    prev = None
+    for a in atts:
+        if a.location and prev:
+            total += haversine_km(prev, a.location)
         if a.location:
-            total += _add(prev_loc, a.location)
-            prev_loc = a.location
-
-    if lunch and lunch.location:
-        total += _add(prev_loc, lunch.location)
-        prev_loc = lunch.location
-
-    # 下午景点 (split2 - split1 个)
-    for i in range(split1, split2):
-        a = atts_perm[i]
-        if a.location:
-            total += _add(prev_loc, a.location)
-            prev_loc = a.location
-
-    if dinner and dinner.location:
-        total += _add(prev_loc, dinner.location)
-        prev_loc = dinner.location
-
-    # 晚上景点 (N - split2 个;可为 0)
-    for i in range(split2, len(atts_perm)):
-        a = atts_perm[i]
-        if a.location:
-            total += _add(prev_loc, a.location)
-            prev_loc = a.location
-
-    # 回酒店
-    total += _add(prev_loc, hotel_loc)
-
+            prev = a.location
     return total
 
 
-def _add(prev: tuple | None, cur: tuple | None) -> float:
-    """两点 haversine 距离,任一为 None 返回 0。"""
-    if prev and cur:
-        return haversine_km(prev, cur)
-    return 0.0
-
-
-def _fill_dists(
-    atts: list,
-    split1: int,
-    split2: int,
-    meals: dict,
-    hotel_loc: tuple | None,
-) -> None:
-    """
-    原地修改 atts[i].dist_from_prev_km = 路径中前一节点的距离。
-    第一个景点 = 距 breakfast 距离;午餐/晚餐后 = 下午/晚上段距离。
-    不算回酒店的距离(没"下一个 POI")。
-    """
-    breakfast = meals.get("breakfast")
-    lunch = meals.get("lunch")
-    dinner = meals.get("dinner")
-
-    prev_loc: tuple | None = hotel_loc
-    if breakfast and breakfast.location:
-        prev_loc = breakfast.location
-
-    # 上午段
-    for i in range(split1):
-        a = atts[i]
-        if a.location and prev_loc:
-            a.dist_from_prev_km = round(haversine_km(prev_loc, a.location), 2)
-        else:
-            a.dist_from_prev_km = None
-        if a.location:
-            prev_loc = a.location
-
-    if lunch and lunch.location:
-        prev_loc = lunch.location
-
-    # 下午段
-    for i in range(split1, split2):
-        a = atts[i]
-        if a.location and prev_loc:
-            a.dist_from_prev_km = round(haversine_km(prev_loc, a.location), 2)
-        else:
-            a.dist_from_prev_km = None
-        if a.location:
-            prev_loc = a.location
-
-    if dinner and dinner.location:
-        prev_loc = dinner.location
-
-    # 晚上段
-    for i in range(split2, len(atts)):
-        a = atts[i]
+def _fill_dists(atts: list) -> None:
+    """原地修改 atts[i].dist_from_prev_km = haversine(atts[i-1], atts[i])。第一个景点为 None。"""
+    prev_loc = None
+    for a in atts:
         if a.location and prev_loc:
             a.dist_from_prev_km = round(haversine_km(prev_loc, a.location), 2)
         else:

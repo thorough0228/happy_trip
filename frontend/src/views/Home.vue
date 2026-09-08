@@ -82,26 +82,7 @@
       <section class="form-section">
         <h3 class="section-title">🛏 偏好设置</h3>
         <a-row :gutter="16" align="top">
-          <a-col :span="8">
-            <a-form-item label="交通方式">
-              <a-select v-model:value="form.transportation">
-                <a-select-option value="train">公共交通</a-select-option>
-                <a-select-option value="flight">飞机</a-select-option>
-                <a-select-option value="self_drive">自驾</a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="住宿偏好">
-              <a-select v-model:value="form.accommodation">
-                <a-select-option value="youth_hostel">青旅</a-select-option>
-                <a-select-option value="hostel">经济型酒店</a-select-option>
-                <a-select-option value="hotel">舒适型酒店</a-select-option>
-                <a-select-option value="hotel">豪华型酒店</a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
+          <a-col :span="24">
             <a-form-item label="旅行偏好">
               <a-checkbox-group v-model:value="form.preferences" style="width: 100%">
                 <a-row>
@@ -225,8 +206,6 @@ const form = reactive<Omit<TripRequest, 'travel_days'> & { travel_days: number }
   budget_constraint: {
     amount: 3000,
   },
-  transportation: 'train',
-  accommodation: 'hostel',
   preferences: [],
   negative_constraints: [],
 })

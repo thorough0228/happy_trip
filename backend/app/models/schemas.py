@@ -43,44 +43,18 @@ class Attraction(BaseModel):
     dist_from_prev_km: float | None = Field(default=None, description="到上一个 POI 的 haversine 距离(km),第一个景点为 None")
 
 
-class Meal(BaseModel):
-    """一餐信息"""
-    name: str = Field(min_length=1, description="餐厅名称")
-    address: str = Field(min_length=1, description="地址")
-    location: tuple[float, float] | None = Field(default=None, description="经纬度")
-    cost: float = Field(ge=0, description="花费（元）")
-
-
-class Hotel(BaseModel):
-    """住宿信息"""
-    name: str = Field(min_length=1, description="酒店名称")
-    address: str = Field(min_length=1, description="地址")
-    location: tuple[float, float] | None = Field(default=None, description="经纬度")
-    cost: float = Field(ge=0, description="每晚费用（元）")
-    nights: int = Field(ge=0, description="入住晚数")
-
-
 class Day(BaseModel):
-    """每日行程"""
+    """每日行程 — 简化版:只含景点 + 酒店区域建议,不含三餐/具体酒店"""
     date: str = Field(description="日期字符串，如 '2026-10-01'")
     theme: str | None = Field(default=None, description="当日主题")
-    attractions: list[Attraction] = Field(default=[], description="景点列表")
-    meals: dict[Literal["breakfast", "lunch", "dinner"], Meal | None] = Field(
-        default_factory=lambda: {"breakfast": None, "lunch": None, "dinner": None},
-        description="三餐,键为 'breakfast'/'lunch'/'dinner',可以 None(比如当天无早餐)",
-    )
-    hotel: Hotel | None = Field(default=None, description="当日住宿（若当天有住宿）")
-    split1: int = Field(default=0, description="上午段结束位置(午餐前),attractions 索引")
-    split2: int = Field(default=0, description="下午段结束位置(晚餐前),attractions 索引")
+    attractions: list[Attraction] = Field(default=[], description="景点列表(已按路径最优排序)")
+    hotel_area_hint: str | None = Field(default=None, description="酒店区域建议(LLM 生成,自然语言,如'春熙路/太古里附近,出行方便')")
 
 
 class Budget(BaseModel):
     """预算总账"""
-    total_attractions: float = Field(ge=0, description="景点总花费")
-    total_hotels: float = Field(ge=0, description="酒店总花费")
-    total_meals: float = Field(ge=0, description="餐饮总花费")
-    total_transportation: float = Field(ge=0, description="交通总花费")
-    total: float = Field(ge=0, description="总花费（各项之和）")
+    total_attractions: float = Field(ge=0, description="景点门票总额")
+    total: float = Field(ge=0, description="总花费（= total_attractions）")
 
 
 class TripPlan(BaseModel):
