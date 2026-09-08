@@ -8,8 +8,15 @@
 晚上逛完才回酒店。evening 段是**可选项**,全部白天景点就让 evening 为空,
 算法自动处理(无 evening 段就是下午结束直接回酒店)。
 
+分段约束(避免 LLM 把所有景点都放 evening):
+- 上午(morning)至少 MIN_MORNING_N 个景点(默认 1)
+- 晚上(evening)最多 MAX_EVENING_N 个景点(默认 2)
+- 白天(afternoon)无硬约束,可灵活切分
+
+这些约束在 split 枚举时强制过滤,不依赖 LLM 输出顺序。
+
 自适应算法:
-- N ≤ BRUTE_FORCE_MAX_N (10):暴力枚举所有 (切分点 split1, split2) × 3 段子排列
+- N ≤ BRUTE_FORCE_MAX_N (10):暴力枚举所有满足约束的 (split1, split2) × 3 段子排列
 - N > 10:罕见,LLM 受 prompt 约束一般不会输出这么多景点,直接保留 LLM 顺序
 
 暴力枚举在 splits 维度受限,不会像单层 N! 那样爆炸。
@@ -22,6 +29,10 @@ from app.planner.geo import haversine_km
 
 # N ≤ 10 走暴力;split 组合 = O(N²),子排列 ≤ O(N!),总开销合理
 BRUTE_FORCE_MAX_N = 10
+
+# 分段约束
+MIN_MORNING_N = 1   # 上午至少 1 个景点(避免全 evening)
+MAX_EVENING_N = 2    # 晚上最多 2 个景点(夜市+灯光秀 之类)
 
 
 @dataclass
@@ -42,10 +53,11 @@ def optimize_day(day: Day) -> tuple[Day, float]:
     atts = day.attractions
     hotel_loc = day.hotel.location if day.hotel and day.hotel.location else None
 
-    if len(atts) < 2:
-        # 太短不分段,整段归 afternoon
-        _fill_dists(atts, 0, 0, day.meals, hotel_loc)
-        return day, _total_path_km(atts, 0, 0, day.meals, hotel_loc)
+    if len(atts) < MIN_MORNING_N + 1:
+        # 景点太少(< MIN_MORNING_N + 1 个),无法满足"白天 ≥ 1"且"晚上 ≥ 0"的约束
+        # 退化处理 — 全部归 afternoon,evening 空
+        _fill_dists(atts, 0, len(atts), day.meals, hotel_loc)
+        return day, _total_path_km(atts, 0, len(atts), day.meals, hotel_loc)
 
     # 优化路径
     result = _optimize(atts, day.meals, hotel_loc)
@@ -82,10 +94,18 @@ def _brute_force_optimize(atts: list, meals: dict, hotel_loc: tuple | None) -> _
     best_split1 = N
     best_split2 = N
 
-    # split1 ∈ [0, N]: morning 长度
-    # split2 ∈ [split1, N]: afternoon 长度 = split2 - split1;evening = N - split2
-    for split1 in range(0, N + 1):
-        for split2 in range(split1, N + 1):
+    # split1 ∈ [MIN_MORNING_N, N - 1]: 上午 ≥ 1 个景点(晚上也至少 0)
+    # split2 ∈ [max(split1, N - MAX_EVENING_N), N]: 晚上 ≤ MAX_EVENING_N 个景点
+    # 这样 morning ≥ MIN_MORNING_N、evening ≤ MAX_EVENING_N 强制约束
+    split1_min = MIN_MORNING_N
+    split1_max = N - 1  # 至少留 1 给 afternoon 或 evening
+    split2_min_base = N - MAX_EVENING_N  # 晚上最多 MAX_EVENING_N
+
+    for split1 in range(split1_min, split1_max + 1):
+        # split2 下限:max(split1, N - MAX_EVENING_N)
+        split2_min = max(split1, split2_min_base)
+        split2_max = N
+        for split2 in range(split2_min, split2_max + 1):
             morning = atts[:split1]
             afternoon = atts[split1:split2]
             evening = atts[split2:]

@@ -143,6 +143,10 @@ LLM 输出 `TripPlan` 时**不**输出经纬度(怕它编),后端 `_enrich_locat
 **11. 路径优化(景点 + 三餐联合)**
 完整路径模型 = `hotel → breakfast → 上午景点 → lunch → 下午景点 → dinner → 晚上景点 → hotel`。算法枚举**两个切分点** (morning/afternoon/evening 三段)+ 3 段子排列,选总路径最短。Meals 强制插入路径,保证"去完哪些景点后去哪吃饭"的地理合理性。
 evening 段是**可选项** — 实际场景里夜市、夫子庙、城市阳台、灯光秀等适合晚上逛就放输出末尾让算法识别;若当天全部白天景点,evening 段为 0(下午逛完直接回酒店),算法自动处理。
+**分段硬约束**(防 LLM 误把所有景点都归 evening):
+- 上午 ≥ 1 个景点(`MIN_MORNING_N = 1`)
+- 晚上 ≤ 2 个景点(`MAX_EVENING_N = 2`)
+这些约束在 split 枚举时强制过滤,不依赖 LLM 输出顺序,即使 LLM 把所有景点标 evening 也至少 1 个白天景点、晚上最多 2 个。
 复杂度 `O(N² × max(k1! × k2! × k3!))`,N ≤ 10 暴力枚举精确最优(N=10 ~18k 次距离计算,~10 ms)。
 前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。**Polyline 包含完整路径节点**:hotel → breakfast → 上午景点 → lunch → 下午景点 → dinner → 晚上景点 → hotel(三段 + 三餐)。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
 `Result.vue` 按上午 / 中午 / 晚上三个时段分块渲染景点列表,meal 作为时段入口。每段卡片独立显示,evening 段可选(为空则不显示)。
