@@ -6,6 +6,25 @@
       </template>
     </a-page-header>
 
+    <!-- DEBUG:排查 split 时段问题 -->
+    <a-alert
+      v-for="(day, idx) in plan.days"
+      :key="'dbg-' + day.date"
+      type="warning"
+      style="margin-bottom: 12px"
+      show-icon
+    >
+      <template #message>
+        <strong>DEBUG Day {{ idx + 1 }} ({{ day.date }}):</strong>
+        split1={{ day.split1 }}, split2={{ day.split2 }},
+        总景点 {{ day.attractions.length }} |
+        上午 {{ day.split1 }} 个,下午 {{ day.split2 - day.split1 }} 个,晚上 {{ day.attractions.length - day.split2 }} 个
+        <div style="margin-top: 6px; font-size: 12px">
+          景点名: {{ day.attractions.map(a => a.name).join(' / ') }}
+        </div>
+      </template>
+    </a-alert>
+
     <!-- 每日行程 — 按时间段分组渲染 -->
     <a-card
       v-for="(day, idx) in plan.days"
