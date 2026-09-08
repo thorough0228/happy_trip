@@ -9,26 +9,25 @@ Cluster → Day 分配启发式。
 算法:贪心 + 距离惩罚
 - 按 cluster 中心距离"上一个 cluster"最近优先合并到同一天
 - 距离过远(> SAME_DAY_MAX_KM)即使 POI 多也不合并
-- 当 cluster 数量 > days,最大的 cluster 拆分到多天
-- 当 cluster 数量 < days,最小的 cluster 单独成一天(地理连续性 > 平衡)
+- cluster 数量 > days → 把地理相邻的 cluster 合并到同一天
+- cluster 数量 <= days → 每个 cluster 独立一天(多余天留空)
 
-输入/输出都是 list,索引即 day 编号 0..N-1。
+返回结构:**day → list[cluster] → list[POI]**(保留 cluster 边界,
+不做平铺,调用方才能拿到"哪几个 cluster 在同一天")。
+
+duck-typing:不 import POI 类,只用 .location 属性。
 """
-from typing import Iterable
-
-from app.models.poi import POI
 from app.planner.geo import haversine_km
 
 
 # 启发式参数(可配置)
 SAME_DAY_MAX_KM = 3.0     # 同一天允许的"两个 cluster 中心"最大距离,超过则必须分天
-MERGE_MIN_POIS = 1        # 至少 N 个 POI 才考虑合并,防止把单点 cluster 拉到一起
 TARGET_POIS_PER_DAY = 5   # 每"天容量"目标值,决定拆分阈值
 
 
-def cluster_centers(clusters: list[list[POI]]) -> list[tuple[float, float] | None]:
+def cluster_centers(clusters: list[list]) -> list:
     """计算每个 cluster 的中心点(POI 经纬度均值)。空 cluster 返回 None。"""
-    centers: list[tuple[float, float] | None] = []
+    centers: list = []
     for cluster in clusters:
         locs = [p.location for p in cluster if p.location is not None]
         if not locs:
@@ -40,48 +39,49 @@ def cluster_centers(clusters: list[list[POI]]) -> list[tuple[float, float] | Non
     return centers
 
 
+def _count(day_clusters: list[list]) -> int:
+    """统计一天(多个 cluster)的 POI 总数。"""
+    return sum(len(c) for c in day_clusters)
+
+
 def allocate_clusters_to_days(
-    clusters: list[list[POI]],
+    clusters: list[list],
     travel_days: int,
-) -> list[list[list[POI]]]:
+) -> list[list[list]]:
     """
     把 clusters 分配到 N 天。
 
     Args:
-        clusters: 聚类结果 list[list[POI]]
+        clusters: 聚类结果 list[cluster] → list[POI] (duck-typed)
         travel_days: 用户游玩天数
 
     Returns:
-        list[length=travel_days] of list[list[POI]] —
-            days[i] 是第 i 天的 POI 列表(可能为空,通常不为空)
+        list[length=travel_days],每一项是 list[cluster],cluster 是 list[POI]。
+        days[i] = 第 i 天包含的若干 cluster(地理相邻合并)。无 POI 的天 = []。
     """
     n_clusters = len(clusters)
     if n_clusters == 0 or travel_days <= 0:
         return [[] for _ in range(max(travel_days, 1))]
 
     if n_clusters == 1:
-        # 1 个 cluster → 1 天(可能超容量,后面路径优化器可铺)
-        days = [[clusters[0][0]]]  # 先放一个
-        for p in clusters[0][1:]:
-            days[0].append(p)
-        # 剩余 day 留空
+        # 1 个 cluster → 放进 Day 1,其余天留空
+        days: list[list[list]] = [[list(clusters[0])]]
         for _ in range(travel_days - 1):
             days.append([])
         return days
 
-    # 多 cluster,贪心按"与上一个 cluster 中心距离"升序串到 day 上
+    # 多 cluster:按地理相邻串成 chain,再切成 travel_days 段
     centers = cluster_centers(clusters)
     order = sorted(
         range(n_clusters),
         key=lambda i: (centers[i] is None, centers[i] or (0, 0)),
     )
-    # 按"地理上相近"串成 chain:从一个 cluster 出发,贪心找最近的下一个
+    # 贪心链:从第一个 cluster 出发,每次找离当前中心最近的未访问 cluster
     chain: list[int] = [order[0]]
     remaining = set(order[1:])
     last_center = centers[order[0]]
     while remaining:
         candidates = [i for i in remaining if centers[i] is not None] or list(remaining)
-        # 找距 last_center 最近的 cluster
         nxt = min(
             candidates,
             key=lambda i: (
@@ -95,65 +95,55 @@ def allocate_clusters_to_days(
         if centers[nxt] is not None:
             last_center = centers[nxt]
 
-    # chain 是按地理相邻的 cluster 序列,切成 N 段(如果 N < len(chain))
     if travel_days >= len(chain):
-        # days 多了,每个 cluster 各占一天,剩余天留空
-        days = [[clusters[i][j] for j in range(len(clusters[i]))] for i in chain]
+        # cluster 数 <= 天数:每个 cluster 独立一天,多余天留空
+        days: list[list[list]] = [[list(clusters[i])] for i in chain]
         for _ in range(travel_days - len(chain)):
             days.append([])
         return days
 
-    # travel_days < len(chain):需要合并多个 cluster 到同一天
-    # 贪心:从 chain 头开始,逐 cluster 累加,到容量或最后一天就开新 day
-    days: list[list[POI]] = []
-    cur_day: list[POI] = []
+    # cluster 数 > 天数:贪心把相邻 cluster 合并到同一天(保留 cluster 边界)
+    days = []
+    cur_day: list[list] = []        # 当前天含的 cluster 们
     cur_count = 0
     cur_center = None
 
-    # 已分配的天数(用于"剩下 cluster 全收尾到最后一天"逻辑)
-    # 最后一天不触发容量上限,避免丢 POI
     for idx_pos, idx in enumerate(chain):
         c_pois = clusters[idx]
         c_center = centers[idx]
         c_count = len(c_pois)
-        remaining_clusters = len(chain) - idx_pos - 1
-        # 剩余 cluster 还需要多少天(每集群至少 1 天)
-        # 如果剩 N-idx_pos-1 个 cluster 且只剩 days-len(days)-1 天可分配,需合并
-        # 简化:如果"剩余 cluster 数 + 已用天数" > days,最后一天要容纳多余 cluster
 
-        is_last_day = len(days) == travel_days - 1  # 是否即将到第 N 天
+        is_last_day = len(days) == travel_days - 1
+        # 是否必须开始最后一天(剩的 cluster 只能塞最后一天):当已开 days 数 == days-1 时,
+        # 后续所有 cluster 必须合到 cur_day 或最后一个 day。此处用 is_last_day 近似:
+        # 若当前已是最后一个可用 day(还差一天就开满),合并阈值失效
+        must_merge = len(days) >= travel_days - 1  # 已开 days-1 天,当前只能往最后一个塞
 
-        # 决策:加入当前 day 还是新开 day
         if not cur_day:
-            cur_day.extend(c_pois)
+            cur_day.append(list(c_pois))
             cur_count = c_count
             cur_center = c_center
             continue
 
-        # 距离判定:超阈值必须新开一天
+        # 距离判定:超阈值必须新开一天(除非必须合并)
         if cur_center and c_center:
             dist = haversine_km(cur_center, c_center)
         else:
             dist = 0.0
 
-        # 距离超阈值 → 新开 day(除非已是最后一天,强塞避免丢 POI)
-        if dist > SAME_DAY_MAX_KM and not is_last_day:
+        too_far = dist > SAME_DAY_MAX_KM
+        too_many = cur_count >= TARGET_POIS_PER_DAY
+
+        if not must_merge and (too_far or too_many):
+            # 新开一天
             days.append(cur_day)
-            cur_day = list(c_pois)
+            cur_day = [list(c_pois)]
             cur_count = c_count
             cur_center = c_center
             continue
 
-        # 距离可接受,但当天 POI 数已超 target → 新开(同样避开最后一天)
-        if cur_count >= TARGET_POIS_PER_DAY and not is_last_day:
-            days.append(cur_day)
-            cur_day = list(c_pois)
-            cur_count = c_count
-            cur_center = c_center
-            continue
-
-        # 合并(可能跨城市 — 但 days 不足时这是次优解,保 POI 不丢)
-        cur_day.extend(c_pois)
+        # 合并进当前天(cluster 边界保留)
+        cur_day.append(list(c_pois))
         cur_count += c_count
         if c_center and cur_center:
             cur_center = (
@@ -164,10 +154,8 @@ def allocate_clusters_to_days(
     if cur_day:
         days.append(cur_day)
 
-    # days 数量可能不等于 travel_days(如 cluster 极少,合并后只 1 天)
-    # 用空日补到 travel_days
+    # 补齐/截断到 travel_days
     while len(days) < travel_days:
         days.append([])
-    # 反过来可能多于 travel_days(极端情况),截断多余空天
     days = days[:travel_days]
     return days

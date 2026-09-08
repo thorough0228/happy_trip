@@ -28,11 +28,17 @@ from app.planner.weather import get_weather_forecast
 ProgressReporter = Callable[[str, int], Awaitable[None]]
 
 
+class ClusterGroup(BaseModel):
+    """一天内的一个地理 cluster(保留 cluster 边界,给 LLM 清晰分组)。"""
+    cluster_id: str = ""               # "cluster_1" ...
+    pois: list[POI] = Field(default_factory=list)  # 该 cluster 的候选 POI
+
+
 class DayAssignment(BaseModel):
-    """Day Allocation 结果:一天分配到的若干 cluster(每个含 POI)。"""
+    """Day Allocation 结果:一天分配到的若干 ClusterGroup。"""
     day: int                          # 0-indexed(LLM 输出 1-indexed 时记得 +1)
-    clusters: list[list[POI]]         # 多个 cluster 合并到同一天(地理相邻的)
-    poi_count: int = 0                # 该天 POI 总数(便于前端展示)
+    clusters: list[ClusterGroup] = Field(default_factory=list)  # 该天含的 cluster(可多个,地理相邻)
+    poi_count: int = 0                # 该天 POI 总数
 
 
 class PlannerContext(BaseModel):
@@ -60,13 +66,15 @@ class PlannerContext(BaseModel):
         if self.day_assignments:
             lines.append(f"\n【地理聚类 + Day 分配】共 {self._cluster_count()} 个 cluster")
             for da in self.day_assignments:
-                cluster_summaries = []
+                cluster_parts = []
                 for c in da.clusters:
-                    names = [p.name for p in c]
-                    center = self._format_center(c)
-                    cluster_summaries.append(f"({'; '.join(names)} @ {center})")
+                    names = [p.name for p in c.pois]
+                    center = self._format_center(c.pois)
+                    cluster_parts.append(f"[{'; '.join(names)} @ {center}]")
+                if not cluster_parts:
+                    cluster_parts = ["(该天未分配 cluster)"]
                 lines.append(
-                    f"  Day {da.day + 1}(共 {da.poi_count} 个景点): {len(da.clusters)} 个 cluster → {' + '.join(cluster_summaries)}"
+                    f"  Day {da.day + 1}(共 {da.poi_count} 个景点): {', '.join(cluster_parts)}"
                 )
 
         # 详细 POI 列表(供 LLM 反查具体字段如 cost/address)
@@ -135,22 +143,31 @@ async def build_context(
     clusters = cluster_pois(raw_attractions, eps_km=cluster_eps_km)
     # Day Allocation
     day_alloc = allocate_clusters_to_days(clusters, req.travel_days)
-    day_assignments: list[DayAssignment] = []
-    for i, day_clusters in enumerate(day_alloc):
-        all_pois = [p for c in day_clusters for p in c]
-        day_assignments.append(
-            DayAssignment(day=i, clusters=day_clusters, poi_count=len(all_pois))
-        )
 
-    # 调试日志
+    # 调试日志(开发期验证聚类效果)
     print(f"[cluster] POI 候选 {len(raw_attractions)} 个 → {len(clusters)} 个 cluster")
     for i, c in enumerate(clusters, 1):
         names = [p.name for p in c]
         print(f"[cluster]   Cluster {i}: {names}")
+
+    # 组装 DayAssignment:day_alloc[i] = 第 i 天含的若干 cluster,每 cluster 是 POI list
+    day_assignments: list[DayAssignment] = []
+    for i, day_clusters in enumerate(day_alloc):
+        all_pois = [p for c in day_clusters for p in c]
+        groups = []
+        for c_idx, c in enumerate(day_clusters):
+            groups.append(
+                ClusterGroup(cluster_id=f"cluster_{c_idx + 1}", pois=list(c))
+            )
+        day_assignments.append(
+            DayAssignment(day=i, clusters=groups, poi_count=len(all_pois))
+        )
+
+    # 调试日志:Day 分配
     for da in day_assignments:
-        clusters_desc = [
-            f"Cluster({[p.name for p in c]})" for c in da.clusters
-        ]
+        clusters_desc = []
+        for g in da.clusters:
+            clusters_desc.append(f"Cluster[{', '.join(p.name for p in g.pois)}]")
         print(f"[alloc]   Day {da.day + 1} ← {' + '.join(clusters_desc)} ({da.poi_count} 个景点)")
 
     # L7: 日期展开 + 天气快照

@@ -11,6 +11,9 @@ POI 地理聚类(DBSCAN 风格的纯 Python 实现,无 sklearn 依赖)。
 
 距离:haversine(球面距离,经纬度友好)。
 
+本模块 duck-typing — 只访问 POI 的 .name / .location,不强制导入 POI 类,
+避免在算法层引入对 pydantic 的依赖。
+
 关键不变量:
 - 输入 0 个 POI → 返回空 list
 - 输入 1 个 POI → 返回 [[poi]] 单点 cluster
@@ -20,7 +23,6 @@ POI 地理聚类(DBSCAN 风格的纯 Python 实现,无 sklearn 依赖)。
 """
 from typing import Iterable
 
-from app.models.poi import POI
 from app.planner.geo import haversine_km
 
 
@@ -30,10 +32,10 @@ MIN_SAMPLES = 1        # 核心点最少邻居数;1 = 允许单点成 cluster(�
 
 
 def cluster_pois(
-    pois: Iterable[POI],
+    pois: Iterable,
     eps_km: float = EPS_KM,
     min_samples: int = MIN_SAMPLES,
-) -> list[list[POI]]:
+) -> list[list]:
     """
     把 POI 按经纬度聚类,返回 list[list[POI]]。
 
@@ -41,7 +43,7 @@ def cluster_pois(
     同一输入每次结果一致(稳定排序)。
 
     Args:
-        pois: POI 列表(可迭代)
+        pois: POI 列表(duck-typed:只用 .name / .location)
         eps_km: DBSCAN 邻域半径(km),默认 2.0
         min_samples: 核心点最少邻居数,默认 1(允许孤立 POI 自成 cluster)
 
@@ -92,7 +94,7 @@ def cluster_pois(
         cluster_id += 1
 
     # 处理剩余 -1(噪声/离群):作为单点 cluster 保留(不丢)
-    clusters: list[list[POI]] = [[] for _ in range(cluster_id)]
+    clusters: list[list] = [[] for _ in range(cluster_id)]
     for i, label in enumerate(labels):
         if label == -1:
             clusters.append([geocoded[i]])
@@ -106,7 +108,7 @@ def cluster_pois(
     return clusters
 
 
-def _region_query(pois: list[POI], idx: int, eps_km: float) -> list[int]:
+def _region_query(pois: list, idx: int, eps_km: float) -> list[int]:
     """返回 poi[idx] 在 eps_km 半径内的所有索引(含自身)。"""
     neighbors = []
     origin = pois[idx].location
