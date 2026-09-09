@@ -1,7 +1,7 @@
 """
 Happy Trip 评测主入口。
 
-参考 FloatTrip tests/eval/run_eval.py 的设计:
+参考业内主流评测框架设计:
 - 输入冻结:fixture 一次性构造好 POI 候选池 + 天气,直接喂给 plan_trip 跳过外部 API
 - 硬规则评分(code_graders G1-G8)+ 可选 LLM 评委
 - 每个 case 跑 k 次,聚合 pass@k / pass^k

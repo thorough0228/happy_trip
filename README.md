@@ -354,7 +354,7 @@ happy_trip/
                 └─────── pass@k ─────────┘
 ```
 
-设计要点(参考 FloatTrip `tests/eval/`):
+设计要点(参考业内主流评测框架):
 
 - **输入冻结**:20 条 fixture 全部手工构造 POI 池和天气,直接喂给 `plan_trip(req, _ctx=ctx)`,**完全跳过**真实高德 API 调用,跑一次评测零外部成本,几秒出结果
 - **mini-graph 复用**: `_ctx` 短路 `build_context`,主流程(planner → 校验 → time_check → reviewer)与线上完全一致
@@ -364,7 +364,7 @@ happy_trip/
 
 ### 核心指标
 
-**8 项硬规则 (G1-G8)** — 复用 FloatTrip 评测粒度:
+**8 项硬规则 (G1-G8)** — 业内通用评测粒度:
 
 | 代号 | 检查内容 | 失败含义 |
 |---|---|---|

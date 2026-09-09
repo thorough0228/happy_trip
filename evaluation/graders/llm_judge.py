@@ -1,7 +1,7 @@
 """
 LLM 评委(可选,5 维 1-5 分)。
 
-参考 FloatTrip llm_judge.py 的设计:
+参考业内主流 LLM 评委设计:
 - 只看最终产物(plan + 备注),不看中间路径
 - temperature=0,JSON 结构化输出
 - 失败时降级为 None,不影响硬规则评分

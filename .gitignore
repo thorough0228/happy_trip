@@ -40,6 +40,8 @@ npm-debug.log*
 # 评估输出
 # ============================================
 evaluation/eval_report.json
+evaluation/eval_report.md
+evaluation/transcripts/
 
 # ============================================
 # 数据库

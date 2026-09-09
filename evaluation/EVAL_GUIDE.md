@@ -24,7 +24,7 @@ python -m evaluation.run_eval --k 5 --out eval_report.md
 
 ## 架构
 
-参考 FloatTrip `tests/eval/` 的设计：
+参考业内主流评测框架设计：
 
 ```
 evaluation/
