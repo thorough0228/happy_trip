@@ -105,7 +105,7 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         f"- 目的地:{req.destination}\n"
         f"- 出发日期:{start_date_str}\n"
         f"- 旅行天数:{req.travel_days} 天\n"
-        f"- 人数:成人 {req.party.adults} 人,儿童 {req.party.children} 人,老人 {req.party.elders} 人(总 {req.party.total} 人),出行类型:{req.party.companion_type}\n"
+        f"- 人数:成人 {req.party.adults} 人,儿童 {req.party.children} 人,老人 {req.party.elders} 人(总 {req.party.total} 人),出行类型:{req.party.companion_type}\n" if req.party else "- 人数:未指定\n"
         f"- 偏好:{', '.join(req.preferences) if req.preferences else '无特别偏好'}\n"
         f"- 负面约束:{', '.join(req.negative_constraints) if req.negative_constraints else '无'}\n"
         "\n请严格按照上述 JSON 格式输出完整行程计划。"
@@ -234,6 +234,7 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
 
     await report("🎉 完成", 100)
     _enrich_locations(plan, ctx)
+    _enrich_weather(plan, ctx)
 
     # 路径优化:对每个 day 暴力枚举景点全排列,重算 dist_from_prev_km
     # 在 _enrich_locations 之后调,保证 location 已填,优化算法才能算距离
@@ -243,6 +244,17 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
         day.attractions = optimized_day.attractions
 
     return plan
+
+
+def _enrich_weather(plan, ctx) -> None:
+    """按日期把 ctx.weather 里的天气快照填到 plan.days（前端展示用）。"""
+    weather_by_date = {w.day.isoformat(): w for w in ctx.weather}
+    for day in plan.days:
+        w = weather_by_date.get(day.date)
+        if w and w.weather != "unknown":
+            day.weather = w.weather
+            day.temp_max = w.temp_max
+            day.temp_min = w.temp_min
 
 
 def _enrich_locations(plan, ctx) -> None:

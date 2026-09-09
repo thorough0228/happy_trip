@@ -1,5 +1,14 @@
 <template>
   <div class="trip-form">
+    <div class="user-header">
+      <span v-if="isLoggedIn" class="user-info">
+        欢迎，{{ user?.username }}
+        <a-button type="link" size="small" @click="handleLogout">退出</a-button>
+        <a-button type="link" size="small" @click="showHistory = true">历史行程</a-button>
+      </span>
+      <router-link v-else to="/login">登录</router-link>
+    </div>
+
     <h2 style="margin-bottom: 24px">行程需求</h2>
 
     <a-row :gutter="24">
@@ -12,7 +21,19 @@
             <a-row :gutter="16">
               <a-col :span="24">
                 <a-form-item label="目的地城市" :rules="[{ required: true, message: '请输入目的地' }]">
-                  <a-input v-model:value="form.destination" placeholder="例如:北京" />
+                  <div v-if="!editingDestination" class="destination-tag-row">
+                    <a-tag color="blue" class="destination-tag">
+                      📍 {{ form.destination }}
+                    </a-tag>
+                    <a-button type="link" size="small" @click="editingDestination = true">
+                      修改
+                    </a-button>
+                  </div>
+                  <DestinationInput
+                    v-else
+                    v-model:value="form.destination"
+                    @destination-confirmed="onDestinationChosen"
+                  />
                 </a-form-item>
               </a-col>
               <a-col :span="12">
@@ -42,56 +63,24 @@
             </a-row>
           </section>
 
-          <!-- 分组 2:同行人数 -->
-          <section class="form-section">
-            <h3 class="section-title">👥 同行人数</h3>
-            <a-row :gutter="16">
-              <a-col :span="6">
-                <a-form-item label="成人">
-                  <a-input-number v-model:value="form.party.adults" :min="1" :max="20" style="width: 100%" />
-                </a-form-item>
-              </a-col>
-              <a-col :span="6">
-                <a-form-item label="儿童">
-                  <a-input-number v-model:value="form.party.children" :min="0" :max="10" style="width: 100%" />
-                </a-form-item>
-              </a-col>
-              <a-col :span="6">
-                <a-form-item label="老人">
-                  <a-input-number v-model:value="form.party.elders" :min="0" :max="10" style="width: 100%" />
-                </a-form-item>
-              </a-col>
-              <a-col :span="6">
-                <a-form-item label="同行类型">
-                  <a-select v-model:value="form.party.companion_type">
-                    <a-select-option value="solo">独行</a-select-option>
-                    <a-select-option value="couple" :disabled="totalPeople === 1">情侣</a-select-option>
-                    <a-select-option value="family" :disabled="totalPeople === 1">家庭</a-select-option>
-                    <a-select-option value="friends" :disabled="totalPeople === 1">朋友</a-select-option>
-                  </a-select>
-                  <div v-if="totalPeople === 1" style="color: #888; font-size: 12px; margin-top: 4px">
-                    仅 1 人出行,同行类型固定为「独行」
-                  </div>
-                </a-form-item>
-              </a-col>
-            </a-row>
-          </section>
-
-          <!-- 分组 3:偏好设置 -->
+          <!-- 分组 2:偏好设置 -->
           <section class="form-section">
             <h3 class="section-title">🛏 偏好设置</h3>
             <a-form-item label="旅行偏好">
               <a-checkbox-group v-model:value="form.preferences" style="width: 100%">
                 <a-row>
-                  <a-col :span="8" v-for="opt in preferenceOptions" :key="opt" style="margin-bottom: 4px">
-                    <a-checkbox :value="opt">{{ opt }}</a-checkbox>
+                  <a-col :span="8" v-for="opt in preferenceOptions" :key="opt" style="margin-bottom: 2px">
+                    <a-checkbox :value="opt">
+                      <span class="pref-icon">{{ PREF_ICONS[opt] }}</span>
+                      {{ opt }}
+                    </a-checkbox>
                   </a-col>
                 </a-row>
               </a-checkbox-group>
             </a-form-item>
           </section>
 
-          <!-- 分组 4:额外要求 -->
+          <!-- 分组 3:额外要求 -->
           <section class="form-section">
             <h3 class="section-title">📝 额外要求</h3>
             <a-form-item label="负面约束(逗号分隔)">
@@ -126,48 +115,67 @@
       <!-- 右栏:目的地地图 -->
       <a-col :xs="24" :md="10" :lg="11">
         <a-card title="📍 目的地预览" style="position: sticky; top: 24px">
-          <HomeMap :destination="form.destination" />
+          <HomeMap :destination="mapDestination" />
         </a-card>
       </a-col>
     </a-row>
+
+    <!-- 历史行程侧边栏 -->
+    <a-drawer
+      v-model:open="showHistory"
+      :header-style="{ display: 'none' }"
+      placement="right"
+      :width="320"
+    >
+      <HistorySidebar v-if="showHistory" @close="showHistory = false" />
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import dayjs, { Dayjs } from 'dayjs'
 import { useRouter } from 'vue-router'
 import { planTrip, streamTask } from '../services/api'
+import { useAuth } from '../stores/user'
 import HomeMap from '../components/HomeMap.vue'
+import HistorySidebar from '../components/HistorySidebar.vue'
+import DestinationInput from '../components/DestinationInput.vue'
 import type { TripRequest } from '../types'
 
 const router = useRouter()
+const { user, isLoggedIn, logout } = useAuth()
 const loading = ref(false)
+const showHistory = ref(false)
 
-// ---- 同行类型联动:总人数 = 1 时只能独行 ----
+function handleLogout() {
+  logout()
+  router.push('/login')
+}
+
 const form = reactive<Omit<TripRequest, 'travel_days'> & { travel_days: number }>({
-  destination: '北京',
+  destination: '南京',
   start_date: '',
   travel_days: 0,
-  party: {
-    adults: 1,
-    children: 0,
-    elders: 0,
-    companion_type: 'solo',
-  },
   preferences: [],
   negative_constraints: [],
 })
 
-const totalPeople = computed(
-  () => form.party.adults + form.party.children + form.party.elders,
-)
-
-watch(totalPeople, (n) => {
-  if (n === 1 && form.party.companion_type !== 'solo') {
-    form.party.companion_type = 'solo'
-  }
-})
+// 地图预览：仅在用户确认（选中下拉/回车）后才更新，避免输入过程中频繁请求
+const mapDestination = ref('南京')
+const editingDestination = ref(true)
+function handleDestinationConfirmed(v: string) {
+  const city = (v || '').trim()
+  if (city) mapDestination.value = city
+}
+function onDestinationChosen(v: string) {
+  // 1. 先把表单值更新成选择的城市(确保 v-model 同步)
+  form.destination = v
+  // 2. 触发地图更新
+  handleDestinationConfirmed(v)
+  // 3. 关闭编辑态
+  editingDestination.value = false
+}
 
 // 进度状态
 const progressStage = ref('')
@@ -215,13 +223,28 @@ function validateEndDate() {
 }
 
 const preferenceOptions = [
-  '历史文化', '自然风光', '美食探店',
-  '购物商圈', '艺术展览', '休闲放松',
+  '历史文化', '自然风光',
+  '购物商圈', '艺术展览',
   '亲子友好', '老人友好', '小众路线',
   '夜游体验', '摄影打卡', '博物馆',
-  '城市漫步', '户外徒步', '主题乐园',
-  '避开人群',
+  '城市漫步', '户外徒步',
 ]
+
+// 每个偏好对应的小图标
+const PREF_ICONS: Record<string, string> = {
+  历史文化: '🏯',
+  自然风光: '🌄',
+  购物商圈: '🛍️',
+  艺术展览: '🎨',
+  亲子友好: '🎠',
+  老人友好: '🧓',
+  小众路线: '🗺️',
+  夜游体验: '🌃',
+  摄影打卡: '📸',
+  博物馆: '🏛️',
+  城市漫步: '🚶',
+  户外徒步: '🥾',
+}
 
 const negativeText = ref('')
 
@@ -275,19 +298,50 @@ const handleSubmit = async () => {
   max-width: 1200px;
   margin: 0 auto;
 }
+.user-header {
+  text-align: right;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.user-info {
+  color: #666;
+}
 .form-section {
-  margin-bottom: 24px;
-  padding-bottom: 16px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
   border-bottom: 1px solid #f0f0f0;
 }
 .form-section:last-of-type {
   border-bottom: none;
 }
 .section-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
   color: #333;
+}
+:deep(.ant-form-item) {
+  margin-bottom: 12px;
+}
+:deep(.ant-form-item-with-help .ant-form-item-explain) {
+  min-height: 0;
+}
+
+.destination-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.destination-tag {
+  font-size: 14px;
+  padding: 4px 12px;
+  border-radius: 16px;
+}
+
+.pref-icon {
+  margin-right: 4px;
+  font-size: 14px;
 }
 .progress-section {
   margin-top: 24px;

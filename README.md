@@ -89,6 +89,7 @@ _enrich_locations                          前端 Result.vue 渲染行程
 | 外部数据    | 高德地图 V3 API(POI / 天气,带 1h Redis 缓存) |
 | 状态/缓存   | redis.asyncio,key 前缀 `ht:cache:` / `ht:task:` |
 | 异步推送    | sse-starlette `EventSourceResponse` |
+| 用户认证    | PyJWT + PBKDF2 密码哈希 + SQLite |
 | 前端      | Vue 3 + TypeScript + Vite + Ant Design Vue |
 | 前端地图    | 高德 Web JS API(动态加载) |
 | 评估脚本    | Python(规则评测,7 项硬指标) |
@@ -158,6 +159,15 @@ LLM 输出必须**照抄候选的 visit_duration**;后端 validator 校验:① �
 
 **13. Time Check Agent(开放时间验证)**
 独立 Agent 验证 plan 中每个景点的开放时间是否与行程日期冲突(闭馆日、营业时段、节假日)。CoT 推理 → 输出 conflicts → 嵌入主循环共用重试 budget(reviewer 不管时间)。POI.opening_hours 字段从高德 V3 `business.opening_hours` 解析,缺失则跳过(降级不报错)。职责分离避免 reviewer 与 Time Check 双重干预震荡。
+
+**14. 用户系统与行程历史(JWT + SQLite)**
+注册/登录走 `POST /api/auth/{register,login}`,密码 PBKDF2 哈希存储(`salt:hex`,20 万轮),JWT 用 HS256 签发(`sub` 为 user_id)。受保护接口通过 `Depends(require_user_id)` 强制 token 校验。路由守卫(`router/index.ts`)确保未登录用户跳 `/login`,已登录用户访问 `/login` 重定向首页。行程完成后后台任务自动调 `create_trip()` 写入 SQLite `users.db`,`HistorySidebar` 提供历史行程列表(目的地下拉 + 右侧地图预览),支持查看详情跳转 `Result.vue` 与删除。
+
+**15. 每日天气图标**
+`PlannerContext.weather` 在 `_enrich_weather()` 阶段按日期映射到 `plan.days[].weather/temp_max/temp_min`,前端 `Result.vue` 每天卡片右上角渲染 emoji 天气 chip(晴 ☀️ / 多云 ⛅ / 雨 🌧️ / 雪 ❄️ 等)+ 温度区间,鼠标悬停显示完整描述。查不到或超出预报范围(>3 天)时该字段为 null,不显示 chip。
+
+**16. 目的地下拉 + 静态坐标库**
+主页目的地改为下拉选择(`a-select`,支持中文字符串搜索),200+ 城市覆盖直辖市/华东/华南/华中/西南/西北/华北。右侧地图默认聚焦南京;用户切换城市时先用 `AMap.Geocoder` 异步定位,**失败/超时时降级**到内置静态坐标库 `CITY_COORDS`(200+ 经纬度对),保证地图切换立即响应,不阻塞交互。
 
 ---
 

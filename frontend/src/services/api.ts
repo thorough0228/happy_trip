@@ -7,10 +7,34 @@ import type {
   StreamProgressEvent,
 } from '../types'
 
+const TOKEN_KEY = 'happy_trip_token'
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:7000',
   timeout: 30000, // 提交后端只做"创建任务",用不上 10 分钟,30s 足够
 })
+
+// 请求拦截器：自动附加 JWT token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// 响应拦截器：401 时清除登录状态
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem('happy_trip_user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  },
+)
 
 /**
  * 创建异步规划任务。
@@ -121,4 +145,28 @@ export async function* streamTask(task_id: string): AsyncGenerator<TaskProgress,
   } finally {
     source.close()
   }
+}
+
+// ---- 历史记录 API ----
+
+export interface TripSummary {
+  id: string
+  title: string
+  destination: string
+  date_range: string
+  created_at: string
+}
+
+export async function getTripHistory(): Promise<TripSummary[]> {
+  const resp = await api.get<{ trips: TripSummary[] }>('/api/history')
+  return resp.data.trips
+}
+
+export async function getTripDetail(tripId: string): Promise<{ id: string; plan_json: string }> {
+  const resp = await api.get<{ id: string; plan_json: string }>(`/api/history/${tripId}`)
+  return resp.data
+}
+
+export async function deleteTrip(tripId: string): Promise<void> {
+  await api.delete(`/api/history/${tripId}`)
 }

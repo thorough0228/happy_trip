@@ -16,6 +16,17 @@
         <span style="font-size: 16px">Day {{ idx + 1 }} · {{ day.date }}</span>
         <a-tag v-if="day.theme" color="blue" style="margin-left: 8px">{{ day.theme }}</a-tag>
       </template>
+      <template #extra>
+        <a-tooltip v-if="day.weather" :title="weatherTooltip(day)">
+          <div class="weather-chip">
+            <span class="weather-icon">{{ weatherIcon(day.weather) }}</span>
+            <span class="weather-text">{{ day.weather }}</span>
+            <span v-if="day.temp_max != null && day.temp_min != null" class="weather-temp">
+              {{ day.temp_min }}°~{{ day.temp_max }}°
+            </span>
+          </div>
+        </a-tooltip>
+      </template>
 
       <!-- 酒店区域建议(替代具体酒店预订) -->
       <a-alert
@@ -39,13 +50,19 @@
                 <strong>{{ item.name }}</strong>
                 <a-tag v-if="item.cost === 0" color="green" style="margin-left: 8px">免费</a-tag>
                 <a-tag v-else color="orange" style="margin-left: 8px">¥{{ item.cost }}</a-tag>
-                <a-tag v-if="item.dist_from_prev_km !== null && item.dist_from_prev_km !== undefined" color="cyan" style="margin-left: 8px">
+                <a-tag
+                  v-if="item.dist_from_prev_km !== null && item.dist_from_prev_km !== undefined"
+                  color="cyan"
+                  style="margin-left: 8px"
+                >
                   距上一段 ~{{ item.dist_from_prev_km }}km
                 </a-tag>
               </template>
               <template #description>
                 <div>{{ item.address }}</div>
-                <div v-if="item.notes" style="color: #888; font-size: 12px; margin-top: 4px">{{ item.notes }}</div>
+                <div v-if="item.notes" style="color: #888; font-size: 12px; margin-top: 4px">
+                  {{ item.notes }}
+                </div>
               </template>
             </a-list-item-meta>
           </a-list-item>
@@ -73,10 +90,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import type { TripPlan } from '../types'
 import DayMap from '../components/DayMap.vue'
+
+// 高德天气描述 → emoji 图标（覆盖常见情况，未匹配时显示云图）
+function weatherIcon(desc: string): string {
+  const d = desc || ''
+  if (/晴/.test(d) && !/转/.test(d)) return '☀️'
+  if (/多云/.test(d)) return '⛅'
+  if (/阴/.test(d)) return '☁️'
+  if (/雨/.test(d)) return /雷/.test(d) ? '⛈️' : '🌧️'
+  if (/雪/.test(d)) return '❄️'
+  if (/雾/.test(d) || /霾/.test(d)) return '🌫️'
+  if (/沙|尘/.test(d)) return '🌪️'
+  return '🌥️'
+}
+
+function weatherTooltip(day: TripPlan['days'][number]): string {
+  if (!day.weather) return ''
+  const temp = day.temp_min != null && day.temp_max != null ? `${day.temp_min}°C ~ ${day.temp_max}°C` : ''
+  return [day.weather, temp].filter(Boolean).join(' · ')
+}
 
 const plan = ref<TripPlan | null>(null)
 
@@ -92,3 +127,28 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.weather-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #f0f7ff;
+  border-radius: 14px;
+  font-size: 13px;
+  color: #1677ff;
+  cursor: default;
+}
+.weather-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.weather-text {
+  font-weight: 500;
+}
+.weather-temp {
+  color: #888;
+  font-size: 12px;
+}
+</style>

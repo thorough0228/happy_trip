@@ -7,12 +7,14 @@ Trip 路由(SSE 异步任务版)。
 """
 import asyncio
 import json
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.planner import plan_trip
+from app.core.auth import get_user_id_from_request
+from app.core.database import create_trip
 from app.models.schemas import TripRequest
 from app.services import progress
 from app.services.amap import get_walking_route
@@ -21,24 +23,44 @@ router = APIRouter(prefix="/trip", tags=["trip"])
 
 
 @router.post("/plan")
-async def plan(req: TripRequest, bg: BackgroundTasks):
+async def plan(req: TripRequest, bg: BackgroundTasks, request: Request):
     """
     接收用户请求,创建任务并后台跑 plan_trip。
 
     Returns:
         {task_id: str}  前端拿 task_id 去订阅 SSE 流。
     """
+    user_id = get_user_id_from_request(request)
     task = await progress.create_task()
-    bg.add_task(_run_plan, task.task_id, req)
+    bg.add_task(_run_plan, task.task_id, req, user_id)
     return {"task_id": task.task_id}
 
 
-async def _run_plan(task_id: str, req: TripRequest) -> None:
+async def _run_plan(task_id: str, req: TripRequest, user_id: Optional[str]) -> None:
     """后台任务:实际跑规划,根据结果标记完成或失败。"""
+    print(f"[trip] _run_plan 开始, user_id={user_id}")
     try:
         plan_result = await plan_trip(req, task_id=task_id)
-        await progress.complete_task(task_id, plan_result.model_dump())
+        result_dict = plan_result.model_dump()
+        await progress.complete_task(task_id, result_dict)
+        print(f"[trip] 规划完成, user_id={user_id}, title={result_dict.get('title')}")
+        # 已登录用户：保存行程到历史记录
+        if user_id:
+            try:
+                trip_id = create_trip(
+                    user_id=user_id,
+                    title=result_dict.get("title", "未命名行程"),
+                    destination=result_dict.get("destination", ""),
+                    date_range=result_dict.get("date_range", ""),
+                    plan_json=json.dumps(result_dict, ensure_ascii=False),
+                )
+                print(f"[trip] 行程已保存, trip_id={trip_id}")
+            except Exception as e:
+                print(f"[trip] 保存行程历史失败: {e}")
+        else:
+            print("[trip] user_id 为空, 跳过保存")
     except Exception as e:
+        print(f"[trip] 规划失败: {e}")
         await progress.fail_task(task_id, f"{type(e).__name__}: {e}")
 
 

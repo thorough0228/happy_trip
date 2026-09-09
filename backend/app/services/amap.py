@@ -9,7 +9,9 @@
 - 同一城市+关键词的搜索结果短期不变,避免重复调用
 - 高德 QPS 限制下,缓存能显著降低调用次数
 """
+import asyncio
 import os
+import time
 
 import httpx
 from dotenv import load_dotenv
@@ -178,6 +180,9 @@ async def get_walking_route(
     if cached is not None:
         return cached
 
+    # QPS 限流:令牌桶,全局每秒 3 个请求,避免突发高德 QPS 限流
+    await _rate_limit()
+
     params = {
         "key": AMAP_API_KEY,
         "origin": f"{origin[0]},{origin[1]}",
@@ -193,11 +198,15 @@ async def get_walking_route(
         return None
 
     if data.get("status") != "1":
-        print(f"[amap] walking route API 返回错误: {data.get('info')}")
+        info = data.get("info", "")
+        print(f"[amap] walking route API 返回错误: {info}")
+        # 失败响应也缓存 60s,避免错误请求继续消耗 QPS
+        await cache.set(cache_key, None, ttl=60)
         return None
 
     paths = data.get("route", {}).get("paths", [])
     if not paths:
+        await cache.set(cache_key, None, ttl=60)
         return None
     path = paths[0]
 
@@ -222,3 +231,20 @@ async def get_walking_route(
     }
     await cache.set(cache_key, result, ttl=CACHE_TTL * 24)  # 路线 24h 缓存(POI 不变)
     return result
+
+
+# ---- QPS 限流(令牌桶)----
+_rate_lock = asyncio.Lock()
+_rate_last = 0.0
+RATE_INTERVAL = 0.35  # 秒/请求 ≈ 3 QPS
+
+
+async def _rate_limit() -> None:
+    """全局简单的限流,避免请求过快触发高德 QPS 限制。"""
+    global _rate_last
+    async with _rate_lock:
+        now = time.monotonic()
+        wait = RATE_INTERVAL - (now - _rate_last)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _rate_last = time.monotonic()

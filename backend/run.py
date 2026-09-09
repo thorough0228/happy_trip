@@ -5,6 +5,9 @@ L11 改造点:
 - 使用 lifespan 启动期校验 Redis(连接失败进程报错退出,Redis 不可用不允许降级)
 - 删除了原文件底部的旧测试 req 构造代码(已无意义)
 """
+from dotenv import load_dotenv
+load_dotenv()
+
 import uvicorn
 
 if __name__ == "__main__":

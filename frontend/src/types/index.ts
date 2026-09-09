@@ -11,7 +11,7 @@ export interface TripRequest {
   destination: string
   start_date: string
   travel_days: number
-  party: Party
+  party?: Party
   preferences: string[]
   negative_constraints: string[]
 }
@@ -30,6 +30,9 @@ export interface Day {
   theme: string | null
   attractions: Attraction[]
   hotel_area_hint: string | null  // 酒店区域建议(LLM 生成,自然语言)
+  weather?: string | null
+  temp_max?: number | null
+  temp_min?: number | null
 }
 
 export interface TripPlan {

@@ -19,7 +19,7 @@ class TripRequest(BaseModel):
     destination: str = Field(min_length=1, description="目的地")
     start_date: date = Field(description="出发日期")
     travel_days: int = Field(ge=1, le=30, description="旅行天数（1-30）")
-    party: Party = Field(description="人数细节")
+    party: Party | None = Field(default=None, description="人数细节(可选)")
     preferences: list[str] = Field(default=[], description="正向偏好标签")
     negative_constraints: list[str] = Field(default=[], description="负向约束标签")
 
@@ -44,6 +44,9 @@ class Day(BaseModel):
     theme: str | None = Field(default=None, description="当日主题")
     attractions: list[Attraction] = Field(default=[], description="景点列表(已按路径最优排序)")
     hotel_area_hint: str | None = Field(default=None, description="酒店区域建议(LLM 生成,自然语言,如'春熙路/太古里附近,出行方便')")
+    weather: str | None = Field(default=None, description="天气描述,如'晴/多云/小雨';无数据时为 null")
+    temp_max: int | None = Field(default=None, description="最高气温(℃)")
+    temp_min: int | None = Field(default=None, description="最低气温(℃)")
 
 
 class TripPlan(BaseModel):

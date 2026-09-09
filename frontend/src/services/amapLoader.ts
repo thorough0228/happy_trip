@@ -29,12 +29,39 @@ export function loadAMap(): Promise<any> {
       return
     }
     const script = document.createElement('script')
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.Marker,AMap.InfoWindow,AMap.Polyline,AMap.Geocoder`
+    // 基础 maps 不带任何 plugin,AutoComplete/Geocoder/Marker 等插件按需单独加载,
+    // 避免 plugin 名称错误导致整个 SDK 失败。
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}`
     script.async = true
-    script.onload = () => resolve(window.AMap)
+    script.onload = () => {
+      if (window.AMap) resolve(window.AMap)
+      else reject(new Error('高德 SDK 加载后未挂载 window.AMap'))
+    }
     script.onerror = () => reject(new Error('高德地图 SDK 加载失败'))
     document.head.appendChild(script)
   })
 
   return loaderPromise
+}
+
+/**
+ * 按需加载单个 plugin(AMap.Marker / AMap.Geocoder / AMap.AutoComplete 等)。
+ * 返回 Promise,resolve 时 plugin 已挂载到 window.AMap 上。
+ */
+const _pluginPromises = new Map<string, Promise<void>>()
+
+export function loadAMapPlugin(name: string): Promise<void> {
+  const cached = _pluginPromises.get(name)
+  if (cached) return cached
+  const p = loadAMap().then(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        if (!window.AMap) return reject(new Error('AMap 未加载'))
+        // 已注册
+        if (window.AMap[name]) return resolve()
+        window.AMap.plugin(name, () => resolve())
+      }),
+  )
+  _pluginPromises.set(name, p)
+  return p
 }
