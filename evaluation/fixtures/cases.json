@@ -1,0 +1,453 @@
+{
+  "_comment": "Happy Trip 评测 fixture 集(20 条)。每条冻结 plan_trip 的输入:用户请求 + POI 候选池 + 天气快照。",
+  "_schema": {
+    "id": "唯一用例 ID",
+    "tier": "regression(基准,期望 ≈100%) | capability(挑战,期望 < 100%)",
+    "label": "可读标签",
+    "request": "TripRequest 字段,直接喂给 plan_trip",
+    "pool": "手工选定的 POI 候选(模拟 build_context 的输出)",
+    "weather": "手工构造的天气预报(模拟高德 weatherInfo)",
+    "expectations": {
+      "max_day_span_km": "期望每天景点最大跨度(可选,默认 15)",
+      "min_attractions_per_day": "期望每天景点最小数(可选,默认 1)"
+    }
+  },
+  "cases": [
+    {
+      "id": "hangzhou-3d-couple-budget",
+      "tier": "regression",
+      "label": "杭州3天情侣经济",
+      "request": {
+        "destination": "杭州", "start_date": "2026-09-03", "travel_days": 3,
+        "preferences": ["西湖"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "西湖", "address": "杭州市西湖区龙井路1号", "location": [120.149, 30.246], "type": "风景名胜", "cost": 0, "visit_duration": 180, "opening_hours": null},
+        {"name": "雷峰塔", "address": "杭州市西湖区南山路15号", "location": [120.151, 30.243], "type": "风景名胜", "cost": 40, "visit_duration": 60, "opening_hours": "08:00-19:00"},
+        {"name": "灵隐寺", "address": "杭州市西湖区灵隐路法云弄1号", "location": [120.099, 30.245], "type": "寺庙", "cost": 75, "visit_duration": 90, "opening_hours": "07:00-18:00"},
+        {"name": "宋城", "address": "杭州市西湖区之江路148号", "location": [120.105, 30.171], "type": "景区", "cost": 320, "visit_duration": 240, "opening_hours": "09:00-17:00"},
+        {"name": "千岛湖", "address": "杭州市淳安县千岛湖镇", "location": [119.021, 29.605], "type": "风景名胜", "cost": 150, "visit_duration": 300, "opening_hours": "08:00-16:30"},
+        {"name": "京杭大运河", "address": "杭州市拱墅区运河路", "location": [120.146, 30.297], "type": "景区", "cost": 0, "visit_duration": 120, "opening_hours": null},
+        {"name": "清河坊", "address": "杭州市上城区中山中路", "location": [120.171, 30.247], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "灵隐飞来峰", "address": "杭州市西湖区灵隐路", "location": [120.099, 30.244], "type": "风景名胜", "cost": 45, "visit_duration": 60, "opening_hours": "07:30-17:30"},
+        {"name": "断桥残雪", "address": "杭州市西湖区北山街", "location": [120.149, 30.252], "type": "景区", "cost": 0, "visit_duration": 30, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-09-03", "weather": "晴", "temp_max": 30, "temp_min": 22},
+        {"day": "2026-09-04", "weather": "多云", "temp_max": 28, "temp_min": 21},
+        {"day": "2026-09-05", "weather": "晴", "temp_max": 31, "temp_min": 23}
+      ]
+    },
+    {
+      "id": "nanjing-3d-history",
+      "tier": "regression",
+      "label": "南京3天历史文化",
+      "request": {
+        "destination": "南京", "start_date": "2026-09-10", "travel_days": 3,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "总统府", "address": "南京市玄武区长江路292号", "location": [118.797, 32.040], "type": "风景名胜", "cost": 35, "visit_duration": 120, "opening_hours": "08:30-18:00"},
+        {"name": "中山陵景区", "address": "南京市玄武区石象路7号", "location": [118.853, 32.046], "type": "风景名胜", "cost": 0, "visit_duration": 180, "opening_hours": "08:30-17:00"},
+        {"name": "南京博物院", "address": "南京市玄武区中山东路321号", "location": [118.840, 32.052], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "明孝陵景区", "address": "南京市玄武区石象路7号", "location": [118.860, 32.052], "type": "风景名胜", "cost": 70, "visit_duration": 180, "opening_hours": "07:00-18:30"},
+        {"name": "南京夫子庙", "address": "南京市秦淮区贡院街", "location": [118.785, 32.022], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": "09:00-22:00"},
+        {"name": "六朝博物馆", "address": "南京市玄武区长江路302号", "location": [118.797, 32.040], "type": "博物馆", "cost": 30, "visit_duration": 120, "opening_hours": "09:00-18:00"},
+        {"name": "南京城墙台城景区", "address": "南京市玄武区鸡鸣寺路1号", "location": [118.802, 32.063], "type": "风景名胜", "cost": 30, "visit_duration": 60, "opening_hours": "08:30-17:00"},
+        {"name": "玄武湖景区", "address": "南京市玄武区玄武巷1号", "location": [118.795, 32.075], "type": "风景名胜", "cost": 0, "visit_duration": 120, "opening_hours": "06:00-22:00"},
+        {"name": "瞻园", "address": "南京市秦淮区瞻园路128号", "location": [118.789, 32.022], "type": "园林", "cost": 35, "visit_duration": 90, "opening_hours": "08:00-22:00"}
+      ],
+      "weather": [
+        {"day": "2026-09-10", "weather": "晴", "temp_max": 32, "temp_min": 22},
+        {"day": "2026-09-11", "weather": "晴", "temp_max": 33, "temp_min": 23},
+        {"day": "2026-09-12", "weather": "多云", "temp_max": 30, "temp_min": 22}
+      ]
+    },
+    {
+      "id": "beijing-5d-friends-culture",
+      "tier": "regression",
+      "label": "北京5天朋友文化古迹",
+      "request": {
+        "destination": "北京", "start_date": "2026-10-01", "travel_days": 5,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "故宫博物院", "address": "北京市东城区景山前街4号", "location": [116.397, 39.916], "type": "博物馆", "cost": 60, "visit_duration": 240, "opening_hours": "08:30-17:00"},
+        {"name": "八达岭长城", "address": "北京市延庆区G6京藏高速58号出口", "location": [116.024, 40.355], "type": "风景名胜", "cost": 40, "visit_duration": 240, "opening_hours": "07:30-16:00"},
+        {"name": "颐和园", "address": "北京市海淀区新建宫门路19号", "location": [116.275, 39.999], "type": "园林", "cost": 30, "visit_duration": 180, "opening_hours": "06:30-18:00"},
+        {"name": "天坛公园", "address": "北京市东城区天坛内东里7号", "location": [116.411, 39.882], "type": "风景名胜", "cost": 15, "visit_duration": 150, "opening_hours": "06:00-22:00"},
+        {"name": "圆明园", "address": "北京市海淀区清华西路28号", "location": [116.298, 40.008], "type": "园林", "cost": 10, "visit_duration": 180, "opening_hours": "07:00-21:00"},
+        {"name": "北海公园", "address": "北京市西城区文津街1号", "location": [116.387, 39.924], "type": "园林", "cost": 10, "visit_duration": 120, "opening_hours": "06:30-21:00"},
+        {"name": "雍和宫", "address": "北京市东城区雍和宫大街12号", "location": [116.417, 39.945], "type": "寺庙", "cost": 25, "visit_duration": 90, "opening_hours": "09:00-17:00"},
+        {"name": "南锣鼓巷", "address": "北京市东城区南锣鼓巷", "location": [116.403, 39.937], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "什刹海", "address": "北京市西城区什刹海", "location": [116.392, 39.940], "type": "景区", "cost": 0, "visit_duration": 120, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-10-01", "weather": "晴", "temp_max": 22, "temp_min": 12},
+        {"day": "2026-10-02", "weather": "晴", "temp_max": 23, "temp_min": 13},
+        {"day": "2026-10-03", "weather": "多云", "temp_max": 21, "temp_min": 11},
+        {"day": "2026-10-04", "weather": "晴", "temp_max": 20, "temp_min": 10},
+        {"day": "2026-10-05", "weather": "晴", "temp_max": 19, "temp_min": 9}
+      ]
+    },
+    {
+      "id": "xian-3d-history-tighter",
+      "tier": "regression",
+      "label": "西安3天历史文化",
+      "request": {
+        "destination": "西安", "start_date": "2026-11-05", "travel_days": 3,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "兵马俑", "address": "西安市临潼区秦陵北路", "location": [109.279, 34.385], "type": "博物馆", "cost": 120, "visit_duration": 240, "opening_hours": "08:30-17:00"},
+        {"name": "大雁塔", "address": "西安市雁塔区大慈恩寺", "location": [108.964, 34.222], "type": "风景名胜", "cost": 50, "visit_duration": 90, "opening_hours": "08:00-17:00"},
+        {"name": "西安城墙", "address": "西安市莲湖区环城南路", "location": [108.945, 34.262], "type": "风景名胜", "cost": 54, "visit_duration": 120, "opening_hours": "08:00-22:00"},
+        {"name": "陕西历史博物馆", "address": "西安市雁塔区小寨东路91号", "location": [108.952, 34.218], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "华清宫", "address": "西安市临潼区华清路38号", "location": [109.265, 34.395], "type": "景区", "cost": 120, "visit_duration": 180, "opening_hours": "07:00-19:00"},
+        {"name": "钟鼓楼", "address": "西安市莲湖区钟楼盘道", "location": [108.939, 34.270], "type": "风景名胜", "cost": 50, "visit_duration": 60, "opening_hours": "08:30-21:30"},
+        {"name": "回民街", "address": "西安市莲湖区北院门", "location": [108.939, 34.265], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-11-05", "weather": "晴", "temp_max": 15, "temp_min": 5},
+        {"day": "2026-11-06", "weather": "多云", "temp_max": 14, "temp_min": 4},
+        {"day": "2026-11-07", "weather": "晴", "temp_max": 16, "temp_min": 6}
+      ]
+    },
+    {
+      "id": "chengdu-3d-leisure-family",
+      "tier": "regression",
+      "label": "成都3天朋友休闲",
+      "request": {
+        "destination": "成都", "start_date": "2026-09-15", "travel_days": 3,
+        "preferences": ["美食探店", "休闲放松"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "宽窄巷子", "address": "成都市青羊区长顺街", "location": [104.061, 30.667], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "锦里", "address": "成都市武侯区武侯祠大街231号", "location": [104.055, 30.642], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "武侯祠", "address": "成都市武侯区武侯祠大街231号", "location": [104.055, 30.643], "type": "博物馆", "cost": 50, "visit_duration": 90, "opening_hours": "08:30-18:00"},
+        {"name": "杜甫草堂", "address": "成都市青羊区青华路38号", "location": [104.044, 30.658], "type": "博物馆", "cost": 50, "visit_duration": 90, "opening_hours": "08:30-18:00"},
+        {"name": "大熊猫繁育研究基地", "address": "成都市成华区熊猫大道1375号", "location": [104.143, 30.738], "type": "景区", "cost": 55, "visit_duration": 180, "opening_hours": "07:30-18:00"},
+        {"name": "都江堰", "address": "成都市都江堰市公园路", "location": [103.648, 30.988], "type": "风景名胜", "cost": 80, "visit_duration": 180, "opening_hours": "08:00-18:00"},
+        {"name": "春熙路", "address": "成都市锦江区春熙路", "location": [104.081, 30.658], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-09-15", "weather": "多云", "temp_max": 26, "temp_min": 19},
+        {"day": "2026-09-16", "weather": "小雨", "temp_max": 24, "temp_min": 18},
+        {"day": "2026-09-17", "weather": "多云", "temp_max": 27, "temp_min": 19}
+      ]
+    },
+    {
+      "id": "lijiang-3d-small-pool",
+      "tier": "capability",
+      "label": "丽江3天小候选池",
+      "request": {
+        "destination": "丽江", "start_date": "2026-10-10", "travel_days": 3,
+        "preferences": ["小众路线"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "丽江古城", "address": "丽江市古城区光义街", "location": [100.225, 26.872], "type": "景区", "cost": 0, "visit_duration": 180, "opening_hours": null},
+        {"name": "玉龙雪山", "address": "丽江市玉龙纳西族自治县", "location": [100.180, 27.040], "type": "风景名胜", "cost": 180, "visit_duration": 300, "opening_hours": "07:00-16:00"},
+        {"name": "束河古镇", "address": "丽江市古城区束河街道", "location": [100.205, 26.915], "type": "景区", "cost": 0, "visit_duration": 150, "opening_hours": null},
+        {"name": "拉市海", "address": "丽江市玉龙纳西族自治县", "location": [100.150, 26.870], "type": "景区", "cost": 50, "visit_duration": 180, "opening_hours": "08:00-18:00"},
+        {"name": "黑龙潭", "address": "丽江市古城区光义街", "location": [100.224, 26.875], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": "07:00-21:00"}
+      ],
+      "weather": [
+        {"day": "2026-10-10", "weather": "晴", "temp_max": 20, "temp_min": 8},
+        {"day": "2026-10-11", "weather": "晴", "temp_max": 21, "temp_min": 9},
+        {"day": "2026-10-12", "weather": "多云", "temp_max": 19, "temp_min": 7}
+      ]
+    },
+    {
+      "id": "xiamen-3d-coastal",
+      "tier": "regression",
+      "label": "厦门3天海岛风光",
+      "request": {
+        "destination": "厦门", "start_date": "2026-09-20", "travel_days": 3,
+        "preferences": ["自然风光"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "鼓浪屿", "address": "厦门市思明区鼓浪屿", "location": [118.067, 24.448], "type": "风景名胜", "cost": 0, "visit_duration": 240, "opening_hours": null},
+        {"name": "南普陀寺", "address": "厦门市思明区思明南路515号", "location": [118.085, 24.443], "type": "寺庙", "cost": 0, "visit_duration": 90, "opening_hours": "08:00-17:00"},
+        {"name": "厦门大学", "address": "厦门市思明区思明南路422号", "location": [118.088, 24.441], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "环岛路", "address": "厦门市思明区环岛路", "location": [118.110, 24.470], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "曾厝垵", "address": "厦门市思明区曾厝垵", "location": [118.117, 24.435], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "中山路", "address": "厦门市思明区中山路", "location": [118.082, 24.456], "type": "商圈", "cost": 0, "visit_duration": 60, "opening_hours": null},
+        {"name": "集美学村", "address": "厦门市集美区集美学村", "location": [118.097, 24.567], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-09-20", "weather": "晴", "temp_max": 30, "temp_min": 24},
+        {"day": "2026-09-21", "weather": "多云", "temp_max": 29, "temp_min": 23},
+        {"day": "2026-09-22", "weather": "晴", "temp_max": 31, "temp_min": 25}
+      ]
+    },
+    {
+      "id": "qingdao-3d-coastal",
+      "tier": "regression",
+      "label": "青岛3天海滨风情",
+      "request": {
+        "destination": "青岛", "start_date": "2026-09-25", "travel_days": 3,
+        "preferences": ["自然风光"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "栈桥", "address": "青岛市市南区太平路12号", "location": [120.317, 36.067], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": null},
+        {"name": "八大关风景区", "address": "青岛市市南区黄海路", "location": [120.336, 36.064], "type": "风景名胜", "cost": 0, "visit_duration": 120, "opening_hours": null},
+        {"name": "崂山", "address": "青岛市崂山区梅岭东路29号", "location": [120.464, 36.108], "type": "风景名胜", "cost": 90, "visit_duration": 300, "opening_hours": "06:00-18:00"},
+        {"name": "青岛啤酒博物馆", "address": "青岛市市北区登州路56号", "location": [120.323, 36.087], "type": "博物馆", "cost": 60, "visit_duration": 90, "opening_hours": "09:00-17:00"},
+        {"name": "五四广场", "address": "青岛市市南区山东路", "location": [120.382, 36.072], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-09-25", "weather": "晴", "temp_max": 24, "temp_min": 17},
+        {"day": "2026-09-26", "weather": "多云", "temp_max": 23, "temp_min": 16},
+        {"day": "2026-09-27", "weather": "晴", "temp_max": 25, "temp_min": 18}
+      ]
+    },
+    {
+      "id": "suzhou-2d-short",
+      "tier": "regression",
+      "label": "苏州2天园林文化",
+      "request": {
+        "destination": "苏州", "start_date": "2026-10-15", "travel_days": 2,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "拙政园", "address": "苏州市姑苏区东北街178号", "location": [120.625, 31.327], "type": "园林", "cost": 70, "visit_duration": 120, "opening_hours": "07:30-17:30"},
+        {"name": "留园", "address": "苏州市姑苏区留园路338号", "location": [120.566, 31.314], "type": "园林", "cost": 55, "visit_duration": 120, "opening_hours": "07:30-17:30"},
+        {"name": "周庄古镇", "address": "苏州市昆山市周庄镇", "location": [120.852, 31.116], "type": "景区", "cost": 100, "visit_duration": 240, "opening_hours": "08:00-20:00"},
+        {"name": "山塘街", "address": "苏州市姑苏区山塘街", "location": [120.617, 31.323], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "苏州博物馆", "address": "苏州市姑苏区东北街204号", "location": [120.626, 31.327], "type": "博物馆", "cost": 0, "visit_duration": 120, "opening_hours": "09:00-17:00"}
+      ],
+      "weather": [
+        {"day": "2026-10-15", "weather": "多云", "temp_max": 22, "temp_min": 14},
+        {"day": "2026-10-16", "weather": "晴", "temp_max": 23, "temp_min": 15}
+      ]
+    },
+    {
+      "id": "shanghai-3d-modern",
+      "tier": "regression",
+      "label": "上海3天都市风情",
+      "request": {
+        "destination": "上海", "start_date": "2026-11-10", "travel_days": 3,
+        "preferences": ["小资"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "外滩", "address": "上海市黄浦区中山东一路", "location": [121.490, 31.240], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "东方明珠", "address": "上海市浦东新区世纪大道1号", "location": [121.499, 31.240], "type": "风景名胜", "cost": 160, "visit_duration": 120, "opening_hours": "08:00-21:00"},
+        {"name": "豫园", "address": "上海市黄浦区福佑路168号", "location": [121.492, 31.227], "type": "园林", "cost": 40, "visit_duration": 90, "opening_hours": "09:00-16:30"},
+        {"name": "上海博物馆", "address": "上海市黄浦区人民大道201号", "location": [121.475, 31.230], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "田子坊", "address": "上海市黄浦区泰康路210弄", "location": [121.467, 31.211], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "南京路步行街", "address": "上海市黄浦区南京东路", "location": [121.479, 31.236], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "迪士尼乐园", "address": "上海市浦东新区川沙申迪西路753号", "location": [121.669, 31.143], "type": "主题乐园", "cost": 475, "visit_duration": 480, "opening_hours": "08:30-20:30"}
+      ],
+      "weather": [
+        {"day": "2026-11-10", "weather": "晴", "temp_max": 18, "temp_min": 9},
+        {"day": "2026-11-11", "weather": "多云", "temp_max": 17, "temp_min": 8},
+        {"day": "2026-11-12", "weather": "晴", "temp_max": 19, "temp_min": 10}
+      ]
+    },
+    {
+      "id": "sanya-4d-beach-capability",
+      "tier": "capability",
+      "label": "三亚4天海边度假",
+      "request": {
+        "destination": "三亚", "start_date": "2026-12-01", "travel_days": 4,
+        "preferences": ["自然风光", "休闲放松"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "亚龙湾", "address": "三亚市吉阳区亚龙湾国家旅游度假区", "location": [109.673, 18.205], "type": "风景名胜", "cost": 0, "visit_duration": 240, "opening_hours": null},
+        {"name": "天涯海角", "address": "三亚市天涯区马岭山", "location": [109.731, 18.298], "type": "风景名胜", "cost": 81, "visit_duration": 120, "opening_hours": "08:00-18:00"},
+        {"name": "蜈支洲岛", "address": "三亚市海棠区林旺镇后海村", "location": [109.745, 18.310], "type": "景区", "cost": 168, "visit_duration": 360, "opening_hours": "08:00-16:30"},
+        {"name": "南山文化旅游区", "address": "三亚市崖州区南山山", "location": [109.214, 18.291], "type": "景区", "cost": 150, "visit_duration": 300, "opening_hours": "08:00-17:30"},
+        {"name": "大东海", "address": "三亚市吉阳区大东海", "location": [109.520, 18.220], "type": "景区", "cost": 0, "visit_duration": 180, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-12-01", "weather": "晴", "temp_max": 28, "temp_min": 20},
+        {"day": "2026-12-02", "weather": "晴", "temp_max": 29, "temp_min": 21},
+        {"day": "2026-12-03", "weather": "多云", "temp_max": 27, "temp_min": 20},
+        {"day": "2026-12-04", "weather": "晴", "temp_max": 28, "temp_min": 21}
+      ]
+    },
+    {
+      "id": "harbin-3d-winter-capability",
+      "tier": "capability",
+      "label": "哈尔滨3天冰雪",
+      "request": {
+        "destination": "哈尔滨", "start_date": "2026-12-15", "travel_days": 3,
+        "preferences": ["自然风光"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "哈尔滨冰雪大世界", "address": "哈尔滨市松北区太阳岛西侧", "location": [126.610, 45.770], "type": "景区", "cost": 330, "visit_duration": 240, "opening_hours": "10:00-21:30"},
+        {"name": "中央大街", "address": "哈尔滨市道里区中央大街", "location": [126.620, 45.774], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "圣索菲亚教堂", "address": "哈尔滨市道里区透笼街88号", "location": [126.622, 45.773], "type": "风景名胜", "cost": 20, "visit_duration": 60, "opening_hours": "08:30-17:00"},
+        {"name": "太阳岛风景区", "address": "哈尔滨市松北区太阳岛", "location": [126.605, 45.770], "type": "风景名胜", "cost": 30, "visit_duration": 180, "opening_hours": "08:00-17:00"},
+        {"name": "哈尔滨极地馆", "address": "哈尔滨市松北区太阳岛", "location": [126.605, 45.769], "type": "博物馆", "cost": 150, "visit_duration": 120, "opening_hours": "09:00-17:00"}
+      ],
+      "weather": [
+        {"day": "2026-12-15", "weather": "雪", "temp_max": -10, "temp_min": -22},
+        {"day": "2026-12-16", "weather": "多云", "temp_max": -8, "temp_min": -20},
+        {"day": "2026-12-17", "weather": "雪", "temp_max": -12, "temp_min": -24}
+      ]
+    },
+    {
+      "id": "kunn-ming-3d-flowers",
+      "tier": "regression",
+      "label": "昆明3天春城风光",
+      "request": {
+        "destination": "昆明", "start_date": "2026-03-15", "travel_days": 3,
+        "preferences": ["自然风光"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "石林风景区", "address": "昆明市石林彝族自治县", "location": [103.272, 24.770], "type": "风景名胜", "cost": 175, "visit_duration": 240, "opening_hours": "07:30-18:00"},
+        {"name": "滇池", "address": "昆明市西山区滇池路", "location": [102.650, 24.970], "type": "景区", "cost": 0, "visit_duration": 120, "opening_hours": null},
+        {"name": "翠湖公园", "address": "昆明市五华区翠湖南路", "location": [102.687, 25.045], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": null},
+        {"name": "云南民族村", "address": "昆明市西山区滇池路1310号", "location": [102.654, 24.974], "type": "景区", "cost": 90, "visit_duration": 150, "opening_hours": "09:00-18:00"},
+        {"name": "西山龙门", "address": "昆明市西山区西山公路", "location": [102.622, 24.962], "type": "风景名胜", "cost": 40, "visit_duration": 180, "opening_hours": "07:30-18:00"}
+      ],
+      "weather": [
+        {"day": "2026-03-15", "weather": "晴", "temp_max": 22, "temp_min": 9},
+        {"day": "2026-03-16", "weather": "多云", "temp_max": 21, "temp_min": 8},
+        {"day": "2026-03-17", "weather": "晴", "temp_max": 23, "temp_min": 10}
+      ]
+    },
+    {
+      "id": "dali-3d-small-pool-capability",
+      "tier": "capability",
+      "label": "大理3天小池",
+      "request": {
+        "destination": "大理", "start_date": "2026-04-10", "travel_days": 3,
+        "preferences": ["自然风光"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "大理古城", "address": "大理白族自治州大理市", "location": [100.225, 25.597], "type": "景区", "cost": 0, "visit_duration": 180, "opening_hours": null},
+        {"name": "苍山", "address": "大理白族自治州大理市", "location": [100.220, 25.660], "type": "风景名胜", "cost": 40, "visit_duration": 300, "opening_hours": "08:30-17:00"},
+        {"name": "洱海", "address": "大理白族自治州大理市", "location": [100.230, 25.580], "type": "景区", "cost": 0, "visit_duration": 240, "opening_hours": null},
+        {"name": "崇圣寺三塔", "address": "大理白族自治州大理市", "location": [100.225, 25.591], "type": "寺庙", "cost": 121, "visit_duration": 90, "opening_hours": "07:30-18:30"}
+      ],
+      "weather": [
+        {"day": "2026-04-10", "weather": "晴", "temp_max": 24, "temp_min": 10},
+        {"day": "2026-04-11", "weather": "多云", "temp_max": 23, "temp_min": 9},
+        {"day": "2026-04-12", "weather": "晴", "temp_max": 25, "temp_min": 11}
+      ]
+    },
+    {
+      "id": "wuhan-3d-history",
+      "tier": "regression",
+      "label": "武汉3天历史文化",
+      "request": {
+        "destination": "武汉", "start_date": "2026-04-20", "travel_days": 3,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "黄鹤楼", "address": "武汉市武昌区蛇山西山坡特1号", "location": [114.305, 30.550], "type": "风景名胜", "cost": 70, "visit_duration": 90, "opening_hours": "08:30-17:00"},
+        {"name": "湖北省博物馆", "address": "武汉市武昌区东湖路160号", "location": [114.378, 30.564], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "东湖风景区", "address": "武汉市武昌区东湖路", "location": [114.385, 30.555], "type": "风景名胜", "cost": 0, "visit_duration": 180, "opening_hours": "06:00-22:00"},
+        {"name": "户部巷", "address": "武汉市武昌区司门口", "location": [114.303, 30.547], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "武汉大学", "address": "武汉市武昌区珞珈山八一路299号", "location": [114.366, 30.541], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-04-20", "weather": "多云", "temp_max": 22, "temp_min": 13},
+        {"day": "2026-04-21", "weather": "小雨", "temp_max": 19, "temp_min": 12},
+        {"day": "2026-04-22", "weather": "阴", "temp_max": 20, "temp_min": 13}
+      ]
+    },
+    {
+      "id": "guiyang-3d-small-pool-capability",
+      "tier": "capability",
+      "label": "贵阳3天小池",
+      "request": {
+        "destination": "贵阳", "start_date": "2026-05-15", "travel_days": 3,
+        "preferences": ["自然风光"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "甲秀楼", "address": "贵阳市南明区翠微巷8号", "location": [106.715, 26.575], "type": "风景名胜", "cost": 0, "visit_duration": 60, "opening_hours": null},
+        {"name": "黔灵山公园", "address": "贵阳市云岩区枣山路187号", "location": [106.700, 26.600], "type": "景区", "cost": 5, "visit_duration": 180, "opening_hours": "07:00-22:00"},
+        {"name": "青岩古镇", "address": "贵阳市花溪区青岩镇", "location": [106.690, 26.330], "type": "景区", "cost": 60, "visit_duration": 180, "opening_hours": "08:30-17:00"},
+        {"name": "天河潭", "address": "贵阳市花溪区湖潮乡", "location": [106.580, 26.500], "type": "风景名胜", "cost": 70, "visit_duration": 240, "opening_hours": "08:30-17:00"}
+      ],
+      "weather": [
+        {"day": "2026-05-15", "weather": "阴", "temp_max": 22, "temp_min": 14},
+        {"day": "2026-05-16", "weather": "小雨", "temp_max": 20, "temp_min": 13},
+        {"day": "2026-05-17", "weather": "多云", "temp_max": 23, "temp_min": 15}
+      ]
+    },
+    {
+      "id": "beijing-3d-rainy-capability",
+      "tier": "capability",
+      "label": "北京3天雨天",
+      "request": {
+        "destination": "北京", "start_date": "2026-07-15", "travel_days": 3,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "故宫博物院", "address": "北京市东城区景山前街4号", "location": [116.397, 39.916], "type": "博物馆", "cost": 60, "visit_duration": 240, "opening_hours": "08:30-17:00"},
+        {"name": "国家博物馆", "address": "北京市东城区东长安街16号", "location": [116.402, 39.910], "type": "博物馆", "cost": 0, "visit_duration": 240, "opening_hours": "09:00-17:00"},
+        {"name": "首都博物馆", "address": "北京市西城区复兴门外大街16号", "location": [116.354, 39.913], "type": "博物馆", "cost": 0, "visit_duration": 180, "opening_hours": "09:00-17:00"},
+        {"name": "雍和宫", "address": "北京市东城区雍和宫大街12号", "location": [116.417, 39.945], "type": "寺庙", "cost": 25, "visit_duration": 90, "opening_hours": "09:00-17:00"},
+        {"name": "颐和园", "address": "北京市海淀区新建宫门路19号", "location": [116.275, 39.999], "type": "园林", "cost": 30, "visit_duration": 180, "opening_hours": "06:30-18:00"}
+      ],
+      "weather": [
+        {"day": "2026-07-15", "weather": "中雨", "temp_max": 26, "temp_min": 20},
+        {"day": "2026-07-16", "weather": "大雨", "temp_max": 24, "temp_min": 19},
+        {"day": "2026-07-17", "weather": "小雨", "temp_max": 27, "temp_min": 21}
+      ]
+    },
+    {
+      "id": "tianjin-2d-short",
+      "tier": "regression",
+      "label": "天津2天历史文化",
+      "request": {
+        "destination": "天津", "start_date": "2026-05-01", "travel_days": 2,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "天津之眼", "address": "天津市红桥区三岔河口", "location": [117.193, 39.135], "type": "风景名胜", "cost": 70, "visit_duration": 60, "opening_hours": "09:30-21:30"},
+        {"name": "五大道", "address": "天津市和平区重庆道83号", "location": [117.207, 39.110], "type": "景区", "cost": 0, "visit_duration": 120, "opening_hours": null},
+        {"name": "古文化街", "address": "天津市南开区通北路", "location": [117.193, 39.140], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "意式风情街", "address": "天津市河北区自由道与光复道交口", "location": [117.198, 39.135], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-05-01", "weather": "晴", "temp_max": 24, "temp_min": 14},
+        {"day": "2026-05-02", "weather": "多云", "temp_max": 23, "temp_min": 13}
+      ]
+    },
+    {
+      "id": "qingdao-2d-short",
+      "tier": "regression",
+      "label": "青岛2天海滨",
+      "request": {
+        "destination": "青岛", "start_date": "2026-06-10", "travel_days": 2,
+        "preferences": ["自然风光"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "栈桥", "address": "青岛市市南区太平路12号", "location": [120.317, 36.067], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": null},
+        {"name": "八大关风景区", "address": "青岛市市南区黄海路", "location": [120.336, 36.064], "type": "风景名胜", "cost": 0, "visit_duration": 120, "opening_hours": null},
+        {"name": "崂山", "address": "青岛市崂山区梅岭东路29号", "location": [120.464, 36.108], "type": "风景名胜", "cost": 90, "visit_duration": 300, "opening_hours": "06:00-18:00"},
+        {"name": "五四广场", "address": "青岛市市南区山东路", "location": [120.382, 36.072], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-06-10", "weather": "晴", "temp_max": 26, "temp_min": 18},
+        {"day": "2026-06-11", "weather": "多云", "temp_max": 25, "temp_min": 17}
+      ]
+    },
+    {
+      "id": "chongqing-3d-mountain-capability",
+      "tier": "capability",
+      "label": "重庆3天山城",
+      "request": {
+        "destination": "重庆", "start_date": "2026-08-05", "travel_days": 3,
+        "preferences": ["美食探店", "夜景"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "洪崖洞", "address": "重庆市渝中区沧白路56号", "location": [106.581, 29.557], "type": "景区", "cost": 0, "visit_duration": 120, "opening_hours": null},
+        {"name": "解放碑步行街", "address": "重庆市渝中区民族路、民权路、邹容路交汇处", "location": [106.580, 29.560], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "磁器口古镇", "address": "重庆市沙坪坝区磁南街1号", "location": [106.451, 29.580], "type": "景区", "cost": 0, "visit_duration": 180, "opening_hours": null},
+        {"name": "长江三峡博物馆", "address": "重庆市渝中区人民路236号", "location": [106.555, 29.560], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "南山一棵树观景台", "address": "重庆市南岸区南山公园北路", "location": [106.610, 29.530], "type": "景区", "cost": 30, "visit_duration": 90, "opening_hours": "09:00-22:00"}
+      ],
+      "weather": [
+        {"day": "2026-08-05", "weather": "晴", "temp_max": 38, "temp_min": 28},
+        {"day": "2026-08-06", "weather": "多云", "temp_max": 39, "temp_min": 29},
+        {"day": "2026-08-07", "weather": "晴", "temp_max": 40, "temp_min": 30}
+      ]
+    }
+  ]
+}

@@ -1,26 +1,33 @@
 """
-规则评测脚本。
+Happy Trip 评测主入口。
 
-读 eval_set.jsonl,对每条样本调 plan_trip,统计规则指标,输出汇总报告。
-
-L11 改造点:
-- plan_trip / build_context 改为 async,evaluate_one 改为 async,主循环用 asyncio.run
-- 启动期 init_redis()(因为 cache / progress 都要 Redis)
+参考 FloatTrip tests/eval/run_eval.py 的设计:
+- 输入冻结:fixture 一次性构造好 POI 候选池 + 天气,直接喂给 plan_trip 跳过外部 API
+- 硬规则评分(code_graders G1-G8)+ 可选 LLM 评委
+- 每个 case 跑 k 次,聚合 pass@k / pass^k
+- 输出 Markdown 报告 + 落盘 transcript
 
 运行:
     cd happy_trip
-    python -m evaluation.run_eval
+    conda activate happy_trip
+    python -m evaluation.run_eval                          # 全部, k=1, 无 LLM 评委
+    python -m evaluation.run_eval --k 5                    # 全部, k=5
+    python -m evaluation.run_eval --only nanjing-3d-history # 单用例
+    python -m evaluation.run_eval --judge                  # 开 LLM 评委
+    python -m evaluation.run_eval --out eval_report.md     # 输出 Markdown
 """
+from __future__ import annotations
+
+import argparse
 import asyncio
 import json
 import statistics
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-# 把 backend 加进 sys.path,这样才能 import app.*
-# (evaluation 在 happy_trip/ 根目录下,不归 backend 管)
+# 把 backend 加进 sys.path
 _BACKEND_PATH = Path(__file__).parent.parent / "backend"
 sys.path.insert(0, str(_BACKEND_PATH))
 
@@ -29,162 +36,316 @@ from pydantic import ValidationError
 from app.agents.planner import plan_trip
 from app.core import redis_client
 from app.models.schemas import TripPlan, TripRequest
-from app.planner.context import build_context
-from app.planner.validation import validate_plan
-
-EVAL_SET_PATH = Path(__file__).parent / "eval_set.jsonl"
-REPORT_PATH = Path(__file__).parent / "eval_report.json"
+from app.planner.context import PlannerContext
+from evaluation.graders.code_graders import ALL_GRADERS, grade_all
 
 
-def load_eval_set() -> list[dict[str, Any]]:
-    cases = []
-    with open(EVAL_SET_PATH, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            cases.append(json.loads(line))
-    return cases
+# ---- 路径 ----
+FIXTURES_PATH = Path(__file__).parent / "fixtures" / "cases.json"
+TRANSCRIPTS_DIR = Path(__file__).parent / "transcripts"
+REPORT_JSON_PATH = Path(__file__).parent / "eval_report.json"
+REPORT_MD_PATH = Path(__file__).parent / "eval_report.md"
 
 
-async def evaluate_one(case: dict[str, Any]) -> dict[str, Any]:
-    """对单条样本跑评测,返回指标 dict。"""
-    req_dict = case["request"]
-    req = TripRequest(**req_dict)
-    metrics = {k: False for k in [
-        "json_parse_ok",
-        "schema_valid",
-        "attraction_in_candidates",
-        "days_count_match",
-        "attraction_count_ok",
-        "route_optimized_ok",
-        "time_check_ok",
-        "hard_pass",
-    ]}
-    metrics["error"] = ""
-    metrics["latency_sec"] = 0.0
+# ---- Fixture 加载 ----
+def load_fixtures() -> list[dict]:
+    with open(FIXTURES_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data["cases"]
 
+
+def build_ctx_from_fixture(fix: dict) -> tuple[TripRequest, PlannerContext]:
+    """
+    用 fixture 构造 PlannerContext,跳过真实的高德 API 调用。
+
+    POI 用 fixture.pool 直接构造,visit_duration 从 pool 注入;
+    weather 用 fixture.weather 注入。
+    """
+    from app.models.poi import POI
+    from app.planner.context import PlannerContext, ClusterGroup, DayAssignment
+    from app.planner.clustering import cluster_pois
+
+    req = TripRequest(**fix["request"])
+
+    # 构造 POI 列表
+    attractions = [
+        POI(
+            id=f"poi_{i}",
+            name=p["name"],
+            address=p["address"],
+            location=tuple(p["location"]) if p.get("location") else None,
+            type=p.get("type", ""),
+            cost=float(p.get("cost", 0)),
+            opening_hours=p.get("opening_hours"),
+            visit_duration=p.get("visit_duration"),
+        )
+        for i, p in enumerate(fix["pool"])
+    ]
+
+    # 简易聚类(每条 fixture 内 POI 数小,直接用 cluster_pois)
+    clusters = cluster_pois(attractions, eps_km=2.0)
+
+    # Day Allocation(等分):不足的补全,多的合并到前面的 day
+    days_alloc: list[list[list]] = [[c] for c in clusters][: req.travel_days]
+    if not days_alloc:
+        days_alloc = [[attractions[: req.travel_days]]]  # fallback
+    elif len(days_alloc) < req.travel_days:
+        # 把多余的 cluster 平摊到现有 day
+        flat = []
+        for c in clusters[req.travel_days:]:
+            flat.extend(c)
+        for i, p in enumerate(flat):
+            days_alloc[i % len(days_alloc)].append([p])
+
+    day_assignments = [
+        DayAssignment(
+            day=i,
+            clusters=[ClusterGroup(cluster_id=f"c{i}", pois=[p for grp in day_clusters for p in grp])],
+        )
+        for i, day_clusters in enumerate(days_alloc)
+    ]
+
+    # 构造天气
+    from app.models.schemas import WeatherDay
+    weather = [
+        WeatherDay(
+            day=datetime.fromisoformat(w["day"]).date(),
+            weather=w.get("weather", "晴"),
+            temp_max=w.get("temp_max", 25),
+            temp_min=w.get("temp_min", 15),
+        )
+        for w in fix["weather"]
+    ]
+
+    ctx = PlannerContext(
+        request=req,
+        destination=req.destination,
+        dates=[w.day for w in weather],
+        attractions=attractions,
+        weather=weather,
+        day_assignments=day_assignments,
+        daily_available_minutes=480,
+    )
+    return req, ctx
+
+
+# ---- 单次跑 ----
+async def run_one_trial(req: TripRequest, ctx: PlannerContext, fix: dict) -> dict:
+    """跑一次 plan_trip,返回 grader 结果 + plan + 耗时。"""
+    metrics: dict = {
+        "grader_results": {},
+        "all_pass": False,
+        "latency_sec": 0.0,
+        "error": "",
+    }
     t0 = time.time()
     try:
-        ctx = await build_context(req)
-        plan = await plan_trip(req)
-    except json.JSONDecodeError:
-        metrics["error"] = "JSON parse failed"
-        return metrics
-    except ValidationError as e:
-        metrics["error"] = f"Schema validation failed: {e}"
-        return metrics
+        plan = await plan_trip(req, _ctx=ctx)
+        metrics["latency_sec"] = round(time.time() - t0, 2)
+        # 跑全部硬规则
+        for name, fn in ALL_GRADERS:
+            ok, detail = fn(plan, ctx, req)
+            metrics["grader_results"][name] = {"pass": ok, "detail": detail}
+        metrics["all_pass"] = all(r["pass"] for r in metrics["grader_results"].values())
+        metrics["plan"] = plan.model_dump()
+    except (json.JSONDecodeError, ValidationError) as e:
+        metrics["error"] = f"{type(e).__name__}: {str(e)[:200]}"
     except Exception as e:
-        metrics["error"] = f"{type(e).__name__}: {e}"
-        return metrics
-
-    metrics["latency_sec"] = round(time.time() - t0, 2)
-    metrics["json_parse_ok"] = True
-    metrics["schema_valid"] = True
-
-    # 候选集(只保留 attractions,系统不再规划 hotel/meal)
-    attraction_names = {p.name for p in ctx.attractions}
-
-    # 候选约束
-    if all(a.name in attraction_names for a in plan.days[0].attractions):
-        for day in plan.days:
-            if not all(a.name in attraction_names for a in day.attractions):
-                break
-        else:
-            metrics["attraction_in_candidates"] = True
-
-    # 天数匹配
-    if len(plan.days) == req.travel_days:
-        metrics["days_count_match"] = True
-
-    # 每天至少 1 个景点
-    if all(len(day.attractions) >= 1 for day in plan.days):
-        metrics["attraction_count_ok"] = True
-
-    # 路径优化:验证后端确实跑了 optimize_day(至少有一条 dist_from_prev_km > 0)
-    total_route_km = sum(
-        a.dist_from_prev_km or 0
-        for day in plan.days
-        for a in day.attractions
-        if a.dist_from_prev_km is not None
-    )
-    if total_route_km > 0:
-        metrics["route_optimized_ok"] = True
-
-    # Time Check:验证高德返回了至少一个 POI 的 opening_hours,Time Check 有数据可查
-    # (不是所有 POI 都有营业时间数据,None 表示高德 V3 未提供,Time Check 跳过)
-    if any(poi.opening_hours for poi in ctx.attractions):
-        metrics["time_check_ok"] = True
-
-    # hard_pass = 所有硬指标都通过
-    hard_keys = [
-        "json_parse_ok", "schema_valid", "attraction_in_candidates",
-        "days_count_match", "attraction_count_ok",
-        "route_optimized_ok", "time_check_ok",
-    ]
-    metrics["hard_pass"] = all(metrics[k] for k in hard_keys)
-
+        metrics["error"] = f"{type(e).__name__}: {str(e)[:200]}"
     return metrics
 
 
+# ---- 聚合 ----
+def aggregate_trial_results(trials: list[dict]) -> dict:
+    """多次 trial 的聚合指标。"""
+    n = len(trials)
+    if n == 0:
+        return {"pass_rate": 0.0, "pass_at_k": 0.0, "pass_pow_k": 0.0, "latency_mean": 0.0, "errors": 0}
+    pass_count = sum(1 for t in trials if t.get("all_pass"))
+    error_count = sum(1 for t in trials if t.get("error"))
+    latencies = [t["latency_sec"] for t in trials if t["latency_sec"] > 0]
+
+    # 单个 grader 通过率
+    grader_pass: dict = {}
+    for t in trials:
+        for name, r in t.get("grader_results", {}).items():
+            grader_pass.setdefault(name, []).append(r["pass"])
+    grader_rates = {n: f"{sum(p)}/{len(p)}" for n, p in grader_pass.items()}
+
+    return {
+        "pass_rate": round(pass_count / n, 2),
+        "pass_at_k": 1.0 if pass_count >= 1 else 0.0,
+        "pass_pow_k": 1.0 if pass_count == n else 0.0,
+        "latency_mean": round(statistics.mean(latencies), 2) if latencies else 0.0,
+        "errors": error_count,
+        "grader_rates": grader_rates,
+    }
+
+
+# ---- 落盘 transcript ----
+def save_transcript(fix_id: str, plan: TripPlan | None, results: list[dict]) -> None:
+    TRANSCRIPTS_DIR.mkdir(exist_ok=True)
+    path = TRANSCRIPTS_DIR / f"{fix_id}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "id": fix_id,
+                "plan": plan.model_dump() if plan else None,
+                "trials": [
+                    {k: v for k, v in t.items() if k != "plan"}
+                    for t in results
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+# ---- Markdown 报告 ----
+def render_markdown_report(per_case: list[dict]) -> str:
+    lines = ["# Happy Trip 评测报告", ""]
+    lines.append(f"_生成时间:{datetime.now().isoformat(timespec='seconds')}_")
+    lines.append("")
+
+    # 按 tier 分节
+    tiers: dict[str, list[dict]] = {}
+    for c in per_case:
+        tiers.setdefault(c["tier"], []).append(c)
+
+    for tier in ["regression", "capability"]:
+        if tier not in tiers:
+            continue
+        lines.append(f"## {tier}")
+        lines.append("")
+        lines.append("| 用例 | k | pass率 | pass@k | pass^k | 耗时均值 | 错误数 | 评委均分 |")
+        lines.append("|---|---|---|---|---|---|---|---|")
+        for c in tiers[tier]:
+            j = c.get("judge_avg")
+            j_str = f"{j:.2f}" if j is not None else "—"
+            lines.append(
+                f"| {c['label']} | {c['k']} | "
+                f"{int(c['agg']['pass_rate'] * c['k'])}/{c['k']} | "
+                f"{'✓' if c['agg']['pass_at_k'] else '✗'} | "
+                f"{'✓' if c['agg']['pass_pow_k'] else '✗'} | "
+                f"{c['agg']['latency_mean']}s | {c['agg']['errors']} | {j_str} |"
+            )
+        lines.append("")
+
+    # 汇总
+    total = len(per_case)
+    pass_at_k_count = sum(1 for c in per_case if c["agg"]["pass_at_k"] > 0)
+    pass_pow_k_count = sum(1 for c in per_case if c["agg"]["pass_pow_k"] > 0)
+    avg_latency = (
+        statistics.mean(c["agg"]["latency_mean"] for c in per_case if c["agg"]["latency_mean"] > 0)
+        if any(c["agg"]["latency_mean"] > 0 for c in per_case)
+        else 0
+    )
+
+    lines.append("## 汇总")
+    lines.append("")
+    lines.append(f"- 样本数:**{total}**")
+    lines.append(f"- pass@k 比例:**{pass_at_k_count}/{total} = {pass_at_k_count/total:.1%}**")
+    lines.append(f"- pass^k 比例(全稳定):**{pass_pow_k_count}/{total} = {pass_pow_k_count/total:.1%}**")
+    lines.append(f"- 平均耗时:**{avg_latency:.2f}s**")
+    judge_avgs = [c["judge_avg"] for c in per_case if c.get("judge_avg") is not None]
+    if judge_avgs:
+        lines.append(f"- LLM 评委均分均值:**{statistics.mean(judge_avgs):.2f}/5**")
+    return "\n".join(lines)
+
+
+# ---- CLI ----
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Happy Trip 评测")
+    p.add_argument("--k", type=int, default=1, help="每个用例跑 k 次")
+    p.add_argument("--only", type=str, default=None, help="只跑指定用例 id(可模糊匹配)")
+    p.add_argument("--judge", action="store_true", help="启用 LLM 评委")
+    p.add_argument("--out", type=str, default=None, help="输出 Markdown 报告路径")
+    return p.parse_args()
+
+
 async def main_async():
-    cases = load_eval_set()
-    print(f"加载 {len(cases)} 条评测样本\n")
+    args = parse_args()
+    cases = load_fixtures()
+    if args.only:
+        cases = [c for c in cases if args.only.lower() in c["id"].lower()]
+        if not cases:
+            print(f"未找到匹配的 case: {args.only}")
+            return
 
-    # 每个 case 之间 sleep,避免高德 API QPS 限制
-    # (每个 case 跑 3 POI + 1 weather,连续跑 20 个 case 容易触发 CUQPS_HAS_EXCEEDED_THE_LIMIT)
-    INTERVAL_SEC = 3
+    print(f"加载 {len(cases)} 条评测样本(k={args.k}, LLM 评委={args.judge})\n")
 
+    from evaluation.graders.llm_judge import judge_with_llm, judge_avg
+
+    INTERVAL_SEC = 1.0  # 用 fixture 跑不需要调真实高德,可以更快
     per_case = []
-    for i, case in enumerate(cases, 1):
-        label = case.get("label", case.get("id", f"case_{i}"))
-        print(f"[{i}/{len(cases)}] {label} ...", end=" ", flush=True)
-        m = await evaluate_one(case)
-        m["id"] = case.get("id", f"case_{i}")
-        m["label"] = label
-        per_case.append(m)
-        status = "✓" if m.get("hard_pass") else "✗"
-        err = f" ({m['error']})" if m.get("error") else ""
-        print(f"{status}  {m['latency_sec']}s{err}")
 
-        # 下一个 case 之前 sleep(避开高德 QPS)
+    for i, fix in enumerate(cases, 1):
+        req, ctx = build_ctx_from_fixture(fix)
+        trials = []
+        for k in range(args.k):
+            print(f"[{i}/{len(cases)}] {fix['label']} (trial {k+1}/{args.k}) ...", end=" ", flush=True)
+            t = await run_one_trial(req, ctx, fix)
+            trials.append(t)
+            status = "✓" if t.get("all_pass") else ("✗" if t.get("error") else "✗")
+            print(f"{status}  {t['latency_sec']}s")
+
+        # LLM 评委(只对最后一次 trial 的 plan 评)
+        judge = None
+        if args.judge and trials and trials[-1].get("plan"):
+            last_plan = TripPlan(**trials[-1]["plan"])
+            judge = judge_with_llm(req, last_plan)
+
+        agg = aggregate_trial_results(trials)
+        per_case.append(
+            {
+                "id": fix["id"],
+                "label": fix["label"],
+                "tier": fix.get("tier", "regression"),
+                "k": args.k,
+                "agg": agg,
+                "judge": judge,
+                "judge_avg": judge_avg(judge),
+                "trials": trials,
+            }
+        )
+
+        # 落盘 transcript
+        if trials and trials[-1].get("plan"):
+            save_transcript(fix["id"], TripPlan(**trials[-1]["plan"]), trials)
+
         if i < len(cases):
             await asyncio.sleep(INTERVAL_SEC)
 
-    # 汇总
-    metric_keys = [
-        "json_parse_ok", "schema_valid", "attraction_in_candidates",
-        "days_count_match", "attraction_count_ok",
-        "route_optimized_ok", "time_check_ok", "hard_pass",
-    ]
-    summary = {
-        "total_cases": len(per_case),
-        "metric_pass_rate": {},
-        "avg_latency_sec": round(
-            statistics.mean(m["latency_sec"] for m in per_case if m["latency_sec"] > 0),
-            2,
-        ) if any(m["latency_sec"] > 0 for m in per_case) else 0,
+    # JSON 报告
+    REPORT_JSON_PATH.write_text(
+        json.dumps({"summary": _summary(per_case), "per_case": per_case}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"\n详细 JSON 报告: {REPORT_JSON_PATH}")
+
+    # Markdown 报告
+    md = render_markdown_report(per_case)
+    out_path = Path(args.out) if args.out else REPORT_MD_PATH
+    out_path.write_text(md, encoding="utf-8")
+    print(f"Markdown 报告: {out_path}")
+    print("\n" + md)
+
+
+def _summary(per_case: list[dict]) -> dict:
+    total = len(per_case)
+    pass_at_k = sum(1 for c in per_case if c["agg"]["pass_at_k"])
+    pass_pow_k = sum(1 for c in per_case if c["agg"]["pass_pow_k"])
+    return {
+        "total": total,
+        "pass_at_k": f"{pass_at_k}/{total}",
+        "pass_pow_k": f"{pass_pow_k}/{total}",
+        "pass_at_k_rate": round(pass_at_k / total, 2) if total else 0,
     }
-    for k in metric_keys:
-        passed = sum(1 for m in per_case if m.get(k))
-        summary["metric_pass_rate"][k] = f"{passed}/{len(per_case)} ({passed/len(per_case):.1%})"
-
-    print("\n" + "=" * 60)
-    print("汇总报告")
-    print("=" * 60)
-    print(f"样本数: {summary['total_cases']}")
-    print(f"平均耗时: {summary['avg_latency_sec']}s\n")
-    for k, v in summary["metric_pass_rate"].items():
-        print(f"  {k:36s} {v}")
-
-    # 写出报告
-    with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        json.dump({"summary": summary, "per_case": per_case}, f, ensure_ascii=False, indent=2)
-    print(f"\n详细报告写入: {REPORT_PATH}")
 
 
 def main():
-    """同步包裹:启动期 init_redis(),用 asyncio.run 跑 async 主循环,退出前 close。"""
     async def _run():
         await redis_client.init_redis()
         try:

@@ -140,7 +140,7 @@ def _build_retry_messages(
     return base
 
 
-async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
+async def plan_trip(req: TripRequest, task_id: str | None = None, _ctx: PlannerContext | None = None) -> TripPlan:
     """
     规划行程的主入口:
 
@@ -152,13 +152,14 @@ async def plan_trip(req: TripRequest, task_id: str | None = None) -> TripPlan:
     5. Pydantic schema 致命错统一抛 ValueError
 
     task_id: 可选,传入时上报进度给前端
+    _ctx: 可选,评测时传入冻结的 PlannerContext 跳过 build_context 的外部 API 调用
     """
     async def report(stage: str, progress_pct: int):
         if task_id:
             await progress.update_progress(task_id, stage, progress_pct)
 
     await report("⏳ 准备中...", 0)
-    ctx = await build_context(req, reporter=report)
+    ctx = _ctx if _ctx is not None else await build_context(req, reporter=report)
     messages = build_prompt(req, ctx)
 
     # ---- 主循环:LLM 生成 + 业务校验 + 反思重试 ----

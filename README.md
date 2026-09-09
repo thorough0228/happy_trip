@@ -335,35 +335,51 @@ happy_trip/
 ### 评估设计
 
 ```
-冻结输入(eval_set.jsonl 20 条)    真实 LLM 调用
- 目的地/日期/人数/偏好           PlannerContext → plan_trip
-        │                              │
-        └──── build_context 共享 ──────┘
-                       │
-                  最终 TripPlan
-                       │
-            ┌──────────┴──────────┐
-            ▼                     ▼
-    7 项硬规则(G1-G7)        候选约束 / 路径优化 / Time Check / 天数 / 景点数
-    (确定性,零 LLM 成本)      (不含餐厅/酒店/预算约束)
+冻结 fixture (cases.json, 20 条)        plan_trip(req, _ctx=ctx)
+ ├─ request: 用户需求                    │
+ ├─ pool: POI 候选池(手工构造)           │  ← 完全跳过高德 API
+ ├─ weather: 天气预报(手工构造)           │
+ └─ expectations: 期望阈值(可选)         │
+                       │                  │
+                       └─────── ctx ─────┘
+                            │
+                       最终 TripPlan
+                            │
+                ┌───────────┴────────────┐
+                ▼                        ▼
+     8 项硬规则 (G1-G8)            可选 LLM 评委 (5 维 1-5)
+     code_graders.py              llm_judge.py
+     (确定性,零 LLM 成本)         (--judge 启用)
+                │                        │
+                └─────── pass@k ─────────┘
 ```
 
-- **输入冻结**:20 条样本覆盖 11 个城市、3 种人数类型、确定可复现
-- **纯确定性评分**:7 项硬规则全部由 Python 代码执行,不依赖 LLM 评委,跑一次评测零额外 API 成本
-- **业务校验不重试**:`hard_pass` 反映的是 LLM 一次输出的合规度(plan 仍可能带 reviewer 软警告)。多次跑取平均以减少 LLM 随机性影响
+设计要点(参考 FloatTrip `tests/eval/`):
+
+- **输入冻结**:20 条 fixture 全部手工构造 POI 池和天气,直接喂给 `plan_trip(req, _ctx=ctx)`,**完全跳过**真实高德 API 调用,跑一次评测零外部成本,几秒出结果
+- **mini-graph 复用**: `_ctx` 短路 `build_context`,主流程(planner → 校验 → time_check → reviewer)与线上完全一致
+- **硬规则 + 可选 LLM 评委双轨**:确定性代码打分是默认,可加 `--judge` 启用 5 维 LLM 评分(只看最终 plan)
+- **tier 分层**:`regression`(13 条,期望 ≈100%,防退步)+ `capability`(7 条,小池/雨天/严寒等,提升目标)
+- **可复现**:同 fixture + 同模型 + 同 temperature,随机性收敛于 LLM 自身,可对比多次结果
 
 ### 核心指标
 
-| 指标 | 含义 |
-|---|---|
-| `json_parse_ok` | LLM 输出能解析为合法 JSON |
-| `schema_valid` | Pydantic schema 校验通过 |
-| `attraction_in_candidates` | 景点名在候选 POI 列表中 |
-| `days_count_match` | `days` 数组长度 = `travel_days` |
-| `attraction_count_ok` | 每天至少 1 个景点 |
-| `route_optimized_ok` | 至少一条 `dist_from_prev_km > 0`(后端确实跑了路径优化) |
-| `time_check_ok` | ctx 中至少一个 POI 有 `opening_hours`(高德返回了营业时间数据,Time Check 有数据可查) |
-| `hard_pass` | 上面 7 项硬指标全部通过 |
+**8 项硬规则 (G1-G8)** — 复用 FloatTrip 评测粒度:
+
+| 代号 | 检查内容 | 失败含义 |
+|---|---|---|
+| **G1 候选池封闭** | 所有景点必须在 fixture 的 pool 里 | planner 幻觉 |
+| **G2 时长一致** | LLM 填的 visit_duration == 候选值 | LLM 自编时长 |
+| **G3 时长预算** | 每天游玩 + 交通 ≤ 480min | 时间超载 |
+| **G4 结构合法** | days == travel_days;每天 ≥1 景点 | 不完整规划 |
+| **G5 多样性** | 同一天无重复/近邻+名称冲突 | 同景区重复 |
+| **G6 路径优化** | 至少一条 dist_from_prev_km > 0 | 后端未跑优化 |
+| **G7 天气落地** | plan.days.weather 字段已填充 | _enrich_weather 未生效 |
+| **G8 LLM 响应** | plan.title 与 days 均非空 | LLM 未输出 |
+
+`all_pass` = G1-G8 全过。**`pass@k`** = k 次中 ≥1 次通过(能力下界),**`pass^k`** = k 次全过(稳定性)。
+
+**5 维 LLM 评分 (--judge 启用)**:preference_fit / habit_fit / route_reasonableness / weather_adaptation / notes_quality。
 
 ### 快速运行
 
@@ -371,17 +387,32 @@ happy_trip/
 conda activate happy_trip
 cd happy_trip
 
-# 跑一次评测(5-10 分钟;case 之间 sleep 3s 避高德 QPS 限流)
+# 全部 20 条,k=1,无 LLM 评委(2-5 分钟,因走 LLM;fixture 冻结已跳过 API)
 python -m evaluation.run_eval
 
-# 报告写入 evaluation/eval_report.json(.gitignore)
+# 全部 k=5 稳定性
+python -m evaluation.run_eval --k 5
+
+# 单用例 + 启用 LLM 评委
+python -m evaluation.run_eval --only nanjing-3d-history --judge
+
+# 输出 Markdown 报告
+python -m evaluation.run_eval --k 5 --out eval_report.md
+
+# 详细使用见 evaluation/EVAL_GUIDE.md
 ```
+
+报告输出:
+- `evaluation/eval_report.json` — 完整 per-case 数据
+- `evaluation/eval_report.md` — 表格化汇总(按 tier 分节)
+- `evaluation/transcripts/<id>.json` — 每个用例最后一次 trial 的 plan
 
 ### 已知限制
 
-- **中型城市 POI 候选不足**:丽江、大理等城市的候选池较小,`attraction_in_candidates` 通过率约 70-85%
+- **小池子挑战通过率低**:丽江、大理、贵阳等 fixture 的 pool <5 个 POI,G3(时长预算)与 G5(多样性)通过率下降
 - **LLM thinking 关闭对 M3 部分生效**:响应时间从 30s 降到 ~18s,但完全关闭依赖 minimax 服务端支持
 - **Redis 不可用时降级为内存版 task dict**:后端重启后 task 丢失,SSE 流拿到 `failed: task expired` 后前端跳回首页;重启前已完成的任务不受影响
+- **fixture 手工构造**:天气与 visit_duration 依赖人工标注,误差累积;新增用例必须保证 `pool[i].visit_duration` 必填否则 G2 必失败
 
 ### 后续优化方向
 
