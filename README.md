@@ -147,7 +147,16 @@ LLM 输出 `TripPlan` 时**不**输出经纬度(怕它编),后端 `_enrich_locat
 前端 `DayMap` 默认画直线连线(蓝色),异步调 `GET /api/trip/route/walking` 拿真实路网 polyline 替换为绿色实线。高德响应按坐标对 Redis 缓存 24h,同一对景点二次访问直接命中。
 `Result.vue` 简化渲染:每天一个卡片,顶部显示 hotel_area_hint(LLM 建议的酒店区域),下方是按路径最优排序的景点列表。
 
-**12. Time Check Agent(开放时间验证)**
+**11. 地理聚类 + Day 分配(DBSCAN + 时间感知)**
+候选 POI(20 个)在进入 LLM 前先做 **DBSCAN 聚类**(haversine 距离,eps 2km,纯 Python 无 sklearn 依赖),cluster 数由空间分布自然决定(≠ 游玩天数)。超大 cluster(>8 POI 或游玩时长 > 1.5 天容量)按贪心空间链拆分,保持空间连续。
+`Cluster → Day 分配` 沿地理相邻的 chain 按**累计游玩时长**切段,每段 ≤ 每日可用时间(默认 480 分钟/8 小时,集中配置 `DEFAULT_DAILY_AVAILABLE_MIN`)。每天输出在 prompt 里标注:POI 数 / 游玩时长 / 交通缓冲 / 是否超时。
+候选池总时长通常 > 总容量 — 这是"可选池"而非"必去清单",LLM 在时间约束内剪枝,validator 兜底。
+
+**12. 景点游玩时长 visit_duration(V2)**
+每个 POI 带预计游玩分钟数,来源:**名称/类型启发式**(博物馆 150min、古镇 180min、山 240min…)集中配置于 `visit_duration.py`,兜底 90min。不用 LLM 自估。
+LLM 输出必须**照抄候选的 visit_duration**;后端 validator 校验:① 每天 Σvisit_duration + 交通缓冲(景点数-1 × 15min)≤ 每日可用时间,超时打回重生成;② LLM 填的时长与候选不一致则报错。
+
+**13. Time Check Agent(开放时间验证)**
 独立 Agent 验证 plan 中每个景点的开放时间是否与行程日期冲突(闭馆日、营业时段、节假日)。CoT 推理 → 输出 conflicts → 嵌入主循环共用重试 budget(reviewer 不管时间)。POI.opening_hours 字段从高德 V3 `business.opening_hours` 解析,缺失则跳过(降级不报错)。职责分离避免 reviewer 与 Time Check 双重干预震荡。
 
 ---

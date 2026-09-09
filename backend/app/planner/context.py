@@ -49,6 +49,7 @@ class PlannerContext(BaseModel):
     dates: list[date] = Field(default_factory=list)  # 行程日期列表
     attractions: list[POI] = Field(default_factory=list)  # 景点候选(原始,平铺,供 LLM 反查)
     weather: list[WeatherDay] = Field(default_factory=list)  # 天气快照
+    daily_available_minutes: int = 480          # V2 新增:每日可用时间(分钟),默认 8 小时
 
     # 聚类 + Day Allocation 结果(LLM 看到的主要信息)
     day_assignments: list[DayAssignment] = Field(default_factory=list)
@@ -61,20 +62,28 @@ class PlannerContext(BaseModel):
         if self.dates:
             lines.append(f"日期: {', '.join(d.isoformat() for d in self.dates)}")
         lines.append(f"游玩天数: {len(self.dates) if self.dates else self.request.travel_days} 天")
+        lines.append(f"每日可用时间: {self.daily_available_minutes} 分钟(约 {self.daily_available_minutes // 60} 小时)")
 
         # ---- 聚类 + Day Allocation(主要信息)----
         if self.day_assignments:
             lines.append(f"\n【地理聚类 + Day 分配】共 {self._cluster_count()} 个 cluster")
             for da in self.day_assignments:
                 cluster_parts = []
+                total_dur = 0
                 for c in da.clusters:
                     names = [p.name for p in c.pois]
                     center = self._format_center(c.pois)
-                    cluster_parts.append(f"[{'; '.join(names)} @ {center}]")
+                    cdur = sum(getattr(p, "visit_duration", None) or 0 for p in c.pois)
+                    total_dur += cdur
+                    cluster_parts.append(f"[{'; '.join(names)} @ {center}, {cdur}min]")
                 if not cluster_parts:
                     cluster_parts = ["(该天未分配 cluster)"]
+                # 交通时间粗估:每两个 cluster 间 15 min
+                travel_min = max(0, len(da.clusters) - 1) * 15
+                total_min = total_dur + travel_min
+                over = " ⚠超时" if total_min > self.daily_available_minutes else ""
                 lines.append(
-                    f"  Day {da.day + 1}(共 {da.poi_count} 个景点): {', '.join(cluster_parts)}"
+                    f"  Day {da.day + 1}(共 {da.poi_count} 个景点, 游玩 {total_dur}min + 交通 {travel_min}min = {total_min}min / {self.daily_available_minutes}min{over}): {', '.join(cluster_parts)}"
                 )
 
         # 详细 POI 列表(供 LLM 反查具体字段如 cost/address)
@@ -82,7 +91,8 @@ class PlannerContext(BaseModel):
         for p in self.attractions:
             price = f"{p.cost}元" if p.cost > 0 else "免费"
             loc = f"({p.location[0]:.4f},{p.location[1]:.4f})" if p.location else "(无坐标)"
-            lines.append(f"  - {p.name} | {p.address} | {loc} | {price}")
+            vdur = getattr(p, "visit_duration", None) or 0
+            lines.append(f"  - {p.name} | {p.address} | {loc} | {price} | 游玩 {vdur}min")
 
         if self.weather:
             lines.append(f"\n【天气】共 {len(self.weather)} 天")
@@ -138,11 +148,21 @@ async def build_context(
         if p.cost == 0.0:
             p.cost = get_attraction_price(req.destination, p.name)
 
+    # V2: 估算 visit_duration(集中启发式,见 visit_duration.py)
+    from app.planner.visit_duration import estimate_visit_duration
+
+    for p in raw_attractions:
+        if p.visit_duration is None:
+            p.visit_duration = estimate_visit_duration(p.type, p.name)
+
     # ---- 聚类(代码层真正做,不在 prompt 里说)----
     await step("🗺 地理聚类 + Day 分配...", 30)
     clusters = cluster_pois(raw_attractions, eps_km=cluster_eps_km)
-    # Day Allocation
-    day_alloc = allocate_clusters_to_days(clusters, req.travel_days)
+    # Day Allocation(V2: 传每日可用时间,影响大 cluster 拆分阈值)
+    daily_budget = 480  # 可从 req 取;目前固定 8h/天(V2 第一版)
+    day_alloc = allocate_clusters_to_days(
+        clusters, req.travel_days, daily_minutes=daily_budget
+    )
 
     # 调试日志(开发期验证聚类效果)
     print(f"[cluster] POI 候选 {len(raw_attractions)} 个 → {len(clusters)} 个 cluster")
@@ -182,4 +202,5 @@ async def build_context(
         attractions=raw_attractions,
         weather=weather,
         day_assignments=day_assignments,
+        daily_available_minutes=daily_budget,
     )

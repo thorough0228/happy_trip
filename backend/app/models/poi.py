@@ -19,6 +19,7 @@ class POI(BaseModel):
     city: str | None = None              # 所属城市(L5 PlannerContext 会补)
     cost: float = 0.0                    # 票价/价格(L6 才用,先默认 0)
     opening_hours: str | None = None     # 营业时间(高德 business.opening_hours),如 "08:30-17:00;周一闭馆"
+    visit_duration: int | None = None     # 预计游玩时长(分钟,V2 新增,build_context 时估算填充)
 
     @field_validator("location", mode="before")
     @classmethod

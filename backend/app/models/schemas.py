@@ -33,6 +33,9 @@ class Attraction(BaseModel):
     cost: float = Field(ge=0, description="花费（元）")
     notes: str | None = Field(default=None, description="备注")
     dist_from_prev_km: float | None = Field(default=None, description="到上一个 POI 的 haversine 距离(km),第一个景点为 None")
+    visit_duration: int | None = Field(default=None, description="预计游玩时长(分钟,V2 新增,LLM 必填)")
+    cluster_id: str | None = Field(default=None, description="所在地理 cluster 编号(V2 上下文,供 LLM 识别)")
+    cluster_name: str | None = Field(default=None, description="所在地理 cluster 名称(POI 名字,LLM 易于识别)")
 
 
 class Day(BaseModel):

@@ -36,7 +36,14 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "   - 不要跨 Cluster 混合:同一天优先选一个 Cluster 的景点,不要把两个相距很远的 Cluster 拼到一天\n"
         "   - 如果某天 Cluster 景点过多/时间不够,应**减少当天景点数**,而不是跨 Cluster 拉景点\n"
         "   - 如果某 Cluster 在你看来质量低(用户不感兴趣),可以**整 Cluster 跳过**,不要单独挑出 Cluster"
-        "内的某些景点塞到其他天"
+        "内的某些景点塞到其他天\n"
+        "8. 【时间约束 — 非常重要】每个候选 POI 都有 visit_duration(预计游玩分钟数)。\n"
+        "   你必须保证每天的总游玩时间 + 景点间交通时间 不超过每日可用时间(见 PlannerContext 的 '每日可用时间')。\n"
+        "   - 计算公式:当天总时间 = Σ attractions[i].visit_duration + (cluster 数 - 1) × 15 分钟交通缓冲\n"
+        "   - 如果某天总时间已超每日可用时间,**减少当天景点数**(剔除低优先级 POI),而不是强行加塞\n"
+        "   - 不要为了塞更多景点而忽略时间约束\n"
+        "   - 不要自行估算 visit_duration,必须使用系统提供的值(系统已用名称/类型启发式填好)\n"
+        "   - 如果某 POI 没出现在候选列表(候选为空),可以自创,但必须在 notes 里说明"
     )
 
     system_prompt = (
@@ -69,6 +76,7 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "          \"name\": \"景点名\",\n"
         "          \"address\": \"地址\",\n"
         "          \"cost\": 花费(数字,>=0),\n"
+        "          \"visit_duration\": 预计游玩分钟数(整数,必须等于候选列表中的值),\n"
         "          \"notes\": \"备注(字符串,可为 null)\"\n"
         "        }\n"
         "        // 可多个,后端会自动按地理最优排序\n"
@@ -85,6 +93,8 @@ def build_prompt(req: TripRequest, ctx: PlannerContext) -> list[dict]:
         "- 日期格式必须为 YYYY-MM-DD。\n"
         "- 天数必须等于用户要求的 travel_days。\n"
         "- attractions 数量参考 LLM 自定(每天 2-6 个常见),后端会自动按 haversine 最短路径重排。\n"
+        "- visit_duration 必须照抄候选 POI 列表中的值(候选列表每个 POI 都标注了游玩分钟数),不得自行估算或编造。\n"
+        "- 每天总游玩时间(Σ visit_duration)+ 交通缓冲(景点间按 15min/段)应 ≤ 每日可用时间。\n"
         "- hotel_area_hint 是自然语言建议,不是候选池中的具体酒店;用户自己根据建议订房。\n"
         "- 请根据用户偏好(preferences)和负面约束(negative_constraints)调整景点推荐。\n"
         "- 输出必须合法 JSON,键名和嵌套结构与上述示例完全一致。"

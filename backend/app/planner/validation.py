@@ -5,6 +5,7 @@ LLM 通过 schema 校验 ≠ 输出合法。LLM 可能违反业务规则:
 - 编了候选外的景点
 - 同一景点在同一天重复出现
 - 同一景区被拆成多个 POI(地理近邻 + 名称相关),如"玄武湖" + "玄武湖情侣园"
+- 某天游玩总时间 + 交通缓冲 超过每日可用时间(V2)
 
 系统不校验酒店 / 餐厅 / 预算(产品层已去掉),只校验景点相关。
 """
@@ -43,14 +44,47 @@ def validate_plan(plan: TripPlan, ctx: PlannerContext) -> list[str]:
     """
     errors: list[str] = []
     attraction_names = {p.name for p in ctx.attractions}
+    # ctx 里 POI → visit_duration(以 ctx 为准,防止 LLM 自编)
+    name_to_duration = {
+        p.name: getattr(p, "visit_duration", None) or 0 for p in ctx.attractions
+    }
+    daily_budget = getattr(ctx, "daily_available_minutes", 480) or 480
 
-    # 1. 景点候选约束
+    # 1. 景点候选约束 + visit_duration 一致性
     for i, day in enumerate(plan.days):
+        day_duration = 0
         for a in day.attractions:
             if a.name not in attraction_names:
                 errors.append(
                     f"day{i+1}:景点'{a.name}'不在候选列表中"
                 )
+                continue
+            # visit_duration 一致性:LLM 填的值应等于 ctx 候选值(容差 0)
+            ref_dur = name_to_duration.get(a.name, 0)
+            if ref_dur:
+                if getattr(a, "visit_duration", None) is None:
+                    errors.append(
+                        f"day{i+1}:景点'{a.name}'缺少 visit_duration(应为 {ref_dur} 分钟)"
+                    )
+                elif a.visit_duration != ref_dur:
+                    errors.append(
+                        f"day{i+1}:景点'{a.name}' visit_duration={a.visit_duration} 与候选值 {ref_dur} 不一致"
+                    )
+                else:
+                    day_duration += a.visit_duration
+            else:
+                # ctx 无该 POI 时长,用 LLM 值(不强校验)
+                day_duration += getattr(a, "visit_duration", None) or 90
+        # 3. 时间校验:游玩时间 + 交通缓冲 ≤ 每日可用
+        if len(day.attractions) > 1:
+            travel_buf = (len(day.attractions) - 1) * 15
+        else:
+            travel_buf = 0
+        if day_duration + travel_buf > daily_budget:
+            errors.append(
+                f"day{i+1}:时间超载 游玩{day_duration}min + 交通{travel_buf}min = {day_duration + travel_buf}min"
+                f" > 每日可用 {daily_budget}min,请删减景点或换成短时景点"
+            )
 
     # 2. 多样性:同一天景点重复(同名 + 地理近邻 + 名称相关)
     for i, day in enumerate(plan.days):
