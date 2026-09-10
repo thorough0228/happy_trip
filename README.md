@@ -16,7 +16,7 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 [![Eval: 7 hard rules](https://img.shields.io/badge/Eval-7%20hard%20rules-brightgreen)](evaluation/run_eval.py)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-blue)](LICENSE)
 
-[项目结构](#项目结构) · [系统架构](#系统架构) · [设计亮点](#设计亮点) · [快速开始](#快速开始) · [评测体系](#评测体系)
+[项目结构](#项目结构) · [系统架构](#系统架构) · [设计亮点](#设计亮点) · [快速开始](#快速开始) · [评测体系](#评测体系) · [工程边界](#工程边界)
 
 </div>
 
@@ -423,6 +423,87 @@ python -m evaluation.run_eval --k 5 --out eval_report.md
 - [ ] 景点开放时间 / 闭馆日增强
 
 ---
+
+<a id="工程边界"></a>
+
+## 🧭 工程边界
+
+### 能力边界(In / Out of Scope)
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| 景点规划(POI 召回 + 聚类 + 按天分配) | ✅ In | 核心能力,经 20 条评测用例验证 |
+| 路径优化(Haversine 暴力枚举 / 2-opt) | ✅ In | N ≤ 7 全排列,N > 7 多起点 2-opt |
+| 天气感知行程 | ✅ In | 注入 `plan.days[].weather/temp_max/temp_min` |
+| 用户注册 / 登录(JWT + PBKDF2) | ✅ In | 路由守卫强制未登录跳 `/login` |
+| 行程历史(per-user) | ✅ In | SQLite `trips` 表,绑定 `user_id` |
+| 景点票价 | ✅ In | 静态票价表 `pricing.py`,LLM 不允许自报 |
+| 地图渲染与步行路线 | ✅ In | AMap JS SDK + 高德 `direction/walking` |
+| 酒店预订 / OTA 对接 | ❌ Out | 系统只给 `hotel_area_hint`,不接 OTA |
+| 餐厅推荐 | ❌ Out | 旧版有,已剥离,系统只规划景点 |
+| 交通票务(火车票/机票) | ❌ Out | 不参与规划,无 transportation 字段 |
+| 预算约束 | ❌ Out | `TripRequest` 无 budget 字段,LLM 不限制总价 |
+| 实时门票价格 | ❌ Out | 用静态表替代,避免实时 OTA 接入 |
+| 支付 / 下单 | ❌ Out | 行程不产生交易,只生成建议 |
+| 多模态输入(图片识别) | ❌ Out | 仅文字需求 |
+| 多语言支持 | ❌ Out | 仅中文 LLM prompt + 中文 UI |
+
+### 模块依赖边界
+
+| 层 | 目录 | 依赖 | 不允许依赖 |
+|---|---|---|---|
+| API | `backend/app/api/` | Agent, Core | — |
+| Agent | `backend/app/agents/` | Planner, Services, Core | API |
+| Planner | `backend/app/planner/` | Services, Models, Core | Agent, API |
+| Services | `backend/app/services/` | Models, Core | Agent, Planner, API |
+| Core | `backend/app/core/` | 仅 stdlib + 第三方 | 任何业务层 |
+| 前端 Views | `frontend/src/views/` | Components, Stores, Services, Types | — |
+| 前端 Components | `frontend/src/components/` | Services, Types, Vue | Views, Stores |
+| 前端 Stores | `frontend/src/stores/` | localStorage, Services | Views, Components |
+
+### 数据边界(持久化范围)
+
+| 存储 | 内容 | 字段/Key | TTL |
+|---|---|---|---|
+| SQLite `users.db` | 用户 | id, username, password_hash, created_at | 永久 |
+| SQLite `users.db` | 行程历史 | id, user_id, title, destination, date_range, plan_json, created_at | 永久 |
+| Redis(可选) | 高德 POI/天气 | `ht:cache:*` | 1h |
+| Redis(可选) | SSE 任务状态 | `ht:task:*` | 600s |
+| localStorage | 用户 token + 资料 | `happy_trip_token`, `happy_trip_user` | 永久(直到手动 logout) |
+| sessionStorage | 当前行程结果 | `trip_plan` | 单次会话 |
+
+**❌ 不存储**:POI 候选池(每次实时拉)、票价表(代码常量)、LLM 对话历史(每次重新生成)、任务 progress 终态(TTL 过期即清)。
+
+### 外部依赖边界
+
+| 依赖 | 必需 | 降级策略 |
+|---|---|---|
+| 高德 API(POI / 天气 / 路线) | ✅ | 静态坐标库 200+ 城市 + 失败短缓存(60s) |
+| LLM(M3 / OpenAI 兼容) | ✅ | 无降级,直接报错 |
+| Redis | ❌ | 自动降级内存版 task dict(单进程有效) |
+| AMap JS SDK | ✅(前端) | 显示「🗺️ 地图加载失败」提示 |
+| Unsplash 图片 | ❌ | 已移除,改为无图渲染 |
+
+### 代码层硬约束
+
+| 约束 | 实现位置 | 防什么 |
+|---|---|---|
+| LLM 不输出经纬度 | `_enrich_locations` 回填 | 防坐标幻觉 |
+| LLM 不输出票价 | `pricing.py` 静态表查询 | 防价格幻觉 |
+| LLM 不编景点 | `validation.py` G1 候选池封闭 | 防景点幻觉 |
+| LLM 不自编时长 | `validation.py` G2 时长一致 | 防时长幻觉 |
+| 每天时长上限 480min | `validation.py` G3 | 防时间超载 |
+| 同一天不重复 | `validation.py` G5 多样性 | 防同景区重复 |
+| 高德 QPS 防护 | `amap.py` 令牌桶(0.35s/req) | 防 CUQPS_HAS_EXCEEDED_THE_LIMIT |
+| 输入长度 / 范围 | Pydantic `Field(ge=)` / `min_length=` | 防异常入参 |
+
+### 边界如何变更
+
+边界变更必须**同步**修改以下文件:
+- 新增 `TripRequest` 字段 → 前端 `types/index.ts` + 主页 `Home.vue` + 评测 `fixtures/cases.json`
+- 新增外部依赖 → 更新 `requirements.txt` + `.env.example`
+- 新增持久化数据 → `database.py` 新建表 + `init_db()` 加 DDL
+- 新增业务能力 → 在 In Scope 表格追加,Out of Scope 同步检查
 
 ## 🙏 致谢
 
