@@ -43,42 +43,48 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 ## 🏗️ 系统架构
 
 ```
-用户请求 (Home.vue 表单)
-   │
-   ▼
-POST /api/trip/plan  ──→  立即返回 {task_id}
-   │                            │
-   │                       (Redis ht:task:{id} 600s TTL)
-   │                            │
-   ▼                            ▼
-BackgroundTasks 启动           GET /api/trip/stream/{task_id}
-   │                            (前端 EventSource 订阅)
-   ▼                            │
-后端收集事实(程序控制)            │
-   ├─ 高德 POI 搜索(景点)        │
-   ├─ 高德天气 API              │
-   └─ 静态票价表                │
-   │                            │
-   ▼                            ▼
-编译 PlannerContext  ──→  progress 事件 (stage + 0-100)
-   │
-   ▼
-LLM 编排(async chat, 单次输出)
-   │
-   ▼
-硬规则校验 (validate_plan)
-   ├─ 候选约束:景点必须在候选中
-   └─ 多样性:同一景点同一天不重复
-   │
-   ▼
-失败 → 带错误反馈重试(最多 3 次)
-   │
-   ▼
-成功 → progress.complete_task 写入 Redis  ──→  SSE done 事件(完整 TripPlan)
-   │                                            │
-   ▼                                            ▼
-_enrich_locations                          前端 Result.vue 渲染行程
-(回填坐标,防止 LLM 编经纬度)                DayMap.vue 高德地图
+用户请求 (Home.vue 表单) ─┬─→ POST /api/trip/plan ─→ 立即返回 {task_id}
+                          │         │                          │
+                          │         │                (Redis ht:task:{id} 600s TTL)
+                          │         │                          │
+                          │         ▼                          ▼
+                          │  BackgroundTasks 启动       GET /api/trip/stream/{task_id}
+                          │         │                          │
+                          │         ▼                          ▼
+                          │  build_context (planner)         │
+                          │   ├─ search_attractions           │
+                          │   ├─ 票价填充(pricing.py)        │
+                          │   ├─ 天气快照(weather.py)         │
+                          │   ├─ DBSCAN 聚类 + Day 分配      │
+                          │   └─ 打包 PlannerContext          │
+                          │         │                          │
+                          │         ▼                          ▼
+                          │  LLM 编排 (chat, 单次输出) ←─ progress 事件 (stage + 0-100)
+                          │         │                          │
+                          │         ▼                          │
+                          │  validate_plan + time_check        │
+                          │   ├─ G1 候选池封闭                │
+                          │   ├─ G2 时长一致                  │
+                          │   ├─ G3 时长预算                  │
+                          │   └─ G5 多样性(地理 + 名称)        │
+                          │         │                          │
+                          │         ▼                          │
+                          │  失败 → Reviewer (软警告追加 notes)│
+                          │         │                          │
+                          │         ▼                          ▼
+                          │  _enrich_locations + _enrich_weather
+                          │   └─ 防 LLM 编坐标/补全天气字段    │
+                          │         │                          │
+                          │         ▼                          ▼
+                          │  progress.complete_task ──→  SSE done 事件(完整 TripPlan)
+                          │                                            │
+                          ▼                                            ▼
+                  POST /api/auth/{register,login} ──→ user_id ──→ 创建 trip 历史
+                                                                            │
+                                                                            ▼
+                                                              前端 Result.vue 渲染行程
+                                                              HomeMap / DayMap.vue 高德地图
+                                                              HistorySidebar.vue 历史侧栏
 ```
 
 | 层        | 技术 |
@@ -101,7 +107,7 @@ _enrich_locations                          前端 Result.vue 渲染行程
 ## 🔑 设计亮点
 
 **1. PlannerContext 协议 — 候选池封闭世界约束**
-所有景点必须来自高德 API 搜索结果,LLM 不得凭空生成名字。`build_context()` 做景点召回 + 价格填充 + 日期展开 + 天气快照,打包成 `PlannerContext`,LLM 只能在 ctx 范围内编排。`validate_plan` 强制检查每一项 `name` 是否在 ctx 的 `attractions` 集合里。
+所有景点必须来自高德 API 搜索结果,LLM 不得凭空生成名字。`build_context()` 做景点召回 + 价格填充 + DBSCAN 地理聚类 + Day 分配 + 日期展开 + 天气快照,打包成 `PlannerContext`(含 `attractions/weather/day_assignments`)。LLM 只能在 ctx 范围内编排,严格遵守 Cluster → Day 分配建议。`validate_plan` 强制检查每一项 `name` 是否在 ctx 的 `attractions` 集合里。
 
 **2. 双轨防御 — 软约束 + 硬规则 + Reviewer 软提示**
 - **prompt 软约束**:`build_prompt` 的 system 部分枚举 6 条硬性指令(候选约束、价格约束、多样性等),引导 LLM 自觉
@@ -161,7 +167,7 @@ LLM 输出必须**照抄候选的 visit_duration**;后端 validator 校验:① �
 独立 Agent 验证 plan 中每个景点的开放时间是否与行程日期冲突(闭馆日、营业时段、节假日)。CoT 推理 → 输出 conflicts → 嵌入主循环共用重试 budget(reviewer 不管时间)。POI.opening_hours 字段从高德 V3 `business.opening_hours` 解析,缺失则跳过(降级不报错)。职责分离避免 reviewer 与 Time Check 双重干预震荡。
 
 **14. 用户系统与行程历史(JWT + SQLite)**
-注册/登录走 `POST /api/auth/{register,login}`,密码 PBKDF2 哈希存储(`salt:hex`,20 万轮),JWT 用 HS256 签发(`sub` 为 user_id)。受保护接口通过 `Depends(require_user_id)` 强制 token 校验。路由守卫(`router/index.ts`)确保未登录用户跳 `/login`,已登录用户访问 `/login` 重定向首页。行程完成后后台任务自动调 `create_trip()` 写入 SQLite `users.db`,`HistorySidebar` 提供历史行程列表(目的地下拉 + 右侧地图预览),支持查看详情跳转 `Result.vue` 与删除。
+注册/登录走 `POST /api/auth/{register,login}`,密码 PBKDF2 哈希存储(`salt:hex`,20 万轮),JWT 用 HS256 签发(`sub` 为 user_id)。受保护接口通过 `require_user_id_from_request(request: Request)` 从 `Authorization: Bearer` 头解析 user_id,缺失/无效直接 401。路由守卫(`router/index.ts`)确保未登录用户跳 `/login`,已登录用户访问 `/login` 重定向首页。行程完成后后台任务自动调 `create_trip()` 把 trip + plan_json 写入 SQLite `users.db`,`HistorySidebar` 提供历史行程抽屉列表(目的地-天数命名,如"北京-3天"),点击详情跳转 `Result.vue`,支持删除。
 
 **15. 每日天气图标**
 `PlannerContext.weather` 在 `_enrich_weather()` 阶段按日期映射到 `plan.days[].weather/temp_max/temp_min`,前端 `Result.vue` 每天卡片右上角渲染 emoji 天气 chip(晴 ☀️ / 多云 ⛅ / 雨 🌧️ / 雪 ❄️ 等)+ 温度区间,鼠标悬停显示完整描述。查不到或超出预报范围(>3 天)时该字段为 null,不显示 chip。
@@ -239,8 +245,8 @@ VITE_AMAP_WEB_KEY=your_amap_web_key   # 与后端 Key 不同,需单独申请
 
 ```bash
 cd ../backend
-conda create -n happy_trip python=3.11 -y    # 项目已配置 conda 环境
-conda activate happy_trip
+conda create -n agents python=3.11 -y    # 推荐用 conda 环境
+conda activate agents
 pip install -r requirements.txt
 python run.py
 ```
@@ -271,55 +277,78 @@ npm run dev
 
 ```
 happy_trip/
-├── backend/                         # 后端(FastAPI 异步应用)
+├── backend/                              # 后端(FastAPI 异步应用)
 │   ├── app/
-│   │   ├── core/                    # 基础设施层
-│   │   │   └── redis_client.py      # Redis 单例(可选)+ lifespan 启动期 ping(失败降级)
+│   │   ├── core/                         # 基础设施层
+│   │   │   ├── auth.py                   # JWT(HS256)+ PBKDF2 密码哈希 + get_current_user_id 依赖
+│   │   │   ├── database.py               # SQLite(users + trips 表)+ 初始化与 CRUD
+│   │   │   └── redis_client.py           # Redis 单例(可选)+ lifespan 启动期 ping(失败降级)
 │   │   ├── agents/
-│   │   │   └── planner.py           # Plan-and-Execute + Reflexion 主循环
+│   │   │   ├── planner.py                # Plan-and-Execute 主循环(retry + enrich_locations/enrich_weather)
+│   │   │   ├── reviewer.py               # 业务校验失败时生成中文警告追加到 plan.notes
+│   │   │   └── time_check.py             # 开放时间冲突校验
 │   │   ├── api/
-│   │   │   ├── main.py              # FastAPI app + lifespan
+│   │   │   ├── main.py                   # FastAPI app + lifespan(init_db + init_redis)
 │   │   │   └── routes/
-│   │   │       └── trip.py          # POST /plan + GET /stream/{id}
+│   │   │       ├── auth.py               # POST /api/auth/{register,login}
+│   │   │       ├── history.py            # GET/DELETE /api/history/(JWT 受保护)
+│   │   │       └── trip.py               # POST /api/trip/plan + GET /api/trip/stream/{id}
 │   │   ├── models/
-│   │   │   ├── schemas.py           # TripRequest / TripPlan / Day / WeatherDay
-│   │   │   └── poi.py               # POI 领域模型 + location 解析
-│   │   ├── planner/                 # 核心业务逻辑
-│   │   │   ├── context.py           # PlannerContext 编译(async)
-│   │   │   ├── pois.py              # 景点召回(async)
-│   │   │   ├── weather.py           # 天气快照(async)
-│   │   │   ├── dates.py             # 日期展开
-│   │   │   ├── geo.py               # haversine 球面距离工具
-│   │   │   ├── optimize.py          # 单天路径优化(纯景点 haversine 最短路径)
-│   │   │   ├── pricing.py           # 静态票价表(酒店/餐饮估价已停用)
-│   │   │   └── validation.py        # 硬规则校验(候选/多样性)
+│   │   │   ├── schemas.py                # TripRequest / TripPlan / Day / WeatherDay / Party
+│   │   │   └── poi.py                    # POI 领域模型 + location 解析
+│   │   ├── planner/                      # 核心业务逻辑
+│   │   │   ├── context.py                # PlannerContext 编译(async)
+│   │   │   ├── clustering.py             # DBSCAN 聚类(纯 Python,无 sklearn 依赖)
+│   │   │   ├── day_allocation.py         # cluster → day 贪心分配(时间感知)
+│   │   │   ├── pois.py                   # 景点召回(async)
+│   │   │   ├── weather.py                # 天气快照(async)
+│   │   │   ├── dates.py                  # 日期展开
+│   │   │   ├── geo.py                    # haversine 球面距离工具
+│   │   │   ├── optimize.py               # 单天路径优化(纯景点 haversine 最短路径)
+│   │   │   ├── pricing.py                # 静态票价表(酒店/餐饮估价已停用)
+│   │   │   ├── visit_duration.py         # visit_duration 启发式估算
+│   │   │   └── validation.py             # 硬规则校验(候选/多样性)
 │   │   └── services/
-│   │       ├── amap.py              # 高德 V3 HTTP(async,httpx.AsyncClient)
-│   │       ├── llm.py               # AsyncOpenAI + JSON 提取
-│   │       ├── cache.py             # Redis 通用缓存(`ht:cache:` 前缀,不可用时透传)
-│   │       └── progress.py          # Redis 任务状态(`ht:task:` 前缀,600s TTL,不可用时降级内存)
-│   ├── run.py                       # uvicorn 启动入口(lifespan=on)
+│   │       ├── amap.py                   # 高德 V3 HTTP(async + QPS 限流 + 失败短缓存)
+│   │       ├── llm.py                    # AsyncOpenAI + JSON 提取(thinking 模式可控)
+│   │       ├── cache.py                  # Redis 通用缓存(`ht:cache:` 前缀,不可用时透传)
+│   │       └── progress.py               # Redis 任务状态(`ht:task:` 前缀,600s TTL,不可用时降级内存)
+│   ├── run.py                            # uvicorn 启动入口(load_dotenv + lifespan=on)
 │   ├── requirements.txt
 │   ├── .env.example
-│   └── .env                         # 真实配置(.gitignore)
-├── evaluation/                      # 规则评测(独立目录)
-│   ├── eval_set.jsonl               # 20 条冻结核样本
-│   ├── run_eval.py                  # 评测主入口(async)
-│   └── eval_report.json             # 报告输出(.gitignore)
-├── frontend/                        # 前端(Vue 3)
+│   └── .env                              # 真实配置(.gitignore)
+├── evaluation/                           # 评测框架(独立目录)
+│   ├── EVAL_GUIDE.md                     # 使用手册
+│   ├── fixtures/
+│   │   └── cases.json                    # 20 条冻结用例(13 regression + 7 capability)
+│   ├── graders/
+│   │   ├── code_graders.py               # G1-G8 硬规则评分(确定性,零 LLM 成本)
+│   │   └── llm_judge.py                  # 5 维 LLM 评分(--judge 启用)
+│   ├── run_eval.py                       # 评测主入口(CLI + 报告渲染)
+│   ├── transcripts/                      # 每次 trial 的 plan 落盘(.gitignore)
+│   ├── eval_report.json                  # JSON 报告(.gitignore)
+│   └── eval_report.md                    # Markdown 报告(.gitignore)
+├── frontend/                             # 前端(Vue 3 + TypeScript)
 │   ├── src/
 │   │   ├── views/
-│   │   │   ├── Home.vue             # 旅行需求表单 → /result?task_id=...
-│   │   │   └── Result.vue           # 行程结果(按时段分块渲染)+ SSE 实时进度 + 地图
+│   │   │   ├── Home.vue                  # 旅行需求表单 + 目的地预览地图
+│   │   │   ├── Result.vue                # 行程结果(每日卡片 + 天气图标 + 地图)
+│   │   │   └── Login.vue                 # 登录/注册页(受路由守卫保护)
 │   │   ├── components/
-│   │   │   └── DayMap.vue           # 单日地图(高德 JS API 动态加载)
+│   │   │   ├── HomeMap.vue               # 主页地图(AMap Geocoder + 200+ 城市静态坐标降级)
+│   │   │   ├── DayMap.vue                # 单日地图(高德 JS API 动态加载 + walking route)
+│   │   │   ├── HistorySidebar.vue       # 历史行程侧拉抽屉
+│   │   │   └── DestinationInput.vue      # 目的地下拉(200+ 城市,可搜索)
+│   │   ├── stores/
+│   │   │   └── user.ts                   # 用户状态(token/profile)
 │   │   ├── services/
-│   │   │   ├── api.ts               # axios + planTrip + streamTask(AsyncGenerator)
-│   │   │   └── amapLoader.ts        # 高德 JS SDK 加载器
+│   │   │   ├── api.ts                    # axios + JWT 拦截器 + SSE 客户端 + history/photo API
+│   │   │   └── amapLoader.ts             # 高德 JS SDK 动态加载(Geocoder/Marker plugin 按需)
 │   │   ├── types/
-│   │   │   └── index.ts             # TS 类型镜像 Pydantic
-│   │   └── router/
-│   │       └── index.ts
+│   │   │   └── index.ts                  # TS 类型镜像 Pydantic
+│   │   ├── router/
+│   │   │   └── index.ts                  # 路由守卫(未登录跳 /login)
+│   │   └── stores/user.ts                # 用户状态管理
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── .env.example
@@ -384,7 +413,7 @@ happy_trip/
 ### 快速运行
 
 ```bash
-conda activate happy_trip
+conda activate agents
 cd happy_trip
 
 # 全部 20 条,k=1,无 LLM 评委(2-5 分钟,因走 LLM;fixture 冻结已跳过 API)
