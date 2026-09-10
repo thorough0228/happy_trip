@@ -448,6 +448,237 @@
         {"day": "2026-08-06", "weather": "多云", "temp_max": 39, "temp_min": 29},
         {"day": "2026-08-07", "weather": "晴", "temp_max": 40, "temp_min": 30}
       ]
+    },
+
+    {
+      "id": "beijing-1d-ultrashort",
+      "tier": "capability",
+      "label": "北京1天超短",
+      "request": {
+        "destination": "北京", "start_date": "2026-06-10", "travel_days": 1,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "故宫博物院", "address": "北京市东城区景山前街4号", "location": [116.397, 39.916], "type": "博物馆", "cost": 60, "visit_duration": 240, "opening_hours": "08:30-17:00"},
+        {"name": "天安门广场", "address": "北京市东城区东长安街", "location": [116.397, 39.909], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": null},
+        {"name": "国家博物馆", "address": "北京市东城区东长安街16号", "location": [116.402, 39.910], "type": "博物馆", "cost": 0, "visit_duration": 180, "opening_hours": "09:00-17:00"},
+        {"name": "北海公园", "address": "北京市西城区文津街1号", "location": [116.387, 39.924], "type": "园林", "cost": 10, "visit_duration": 120, "opening_hours": "06:30-21:00"}
+      ],
+      "weather": [
+        {"day": "2026-06-10", "weather": "晴", "temp_max": 28, "temp_min": 18}
+      ]
+    },
+
+    {
+      "id": "shanghai-5d-ultralong",
+      "tier": "capability",
+      "label": "上海5天超长",
+      "request": {
+        "destination": "上海", "start_date": "2026-11-15", "travel_days": 5,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "外滩", "address": "上海市黄浦区中山东一路", "location": [121.490, 31.240], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "东方明珠", "address": "上海市浦东新区世纪大道1号", "location": [121.499, 31.240], "type": "风景名胜", "cost": 160, "visit_duration": 120, "opening_hours": "08:00-21:00"},
+        {"name": "豫园", "address": "上海市黄浦区福佑路168号", "location": [121.492, 31.227], "type": "园林", "cost": 40, "visit_duration": 90, "opening_hours": "09:00-16:30"},
+        {"name": "上海博物馆", "address": "上海市黄浦区人民大道201号", "location": [121.475, 31.230], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "田子坊", "address": "上海市黄浦区泰康路210弄", "location": [121.467, 31.211], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "南京路步行街", "address": "上海市黄浦区南京东路", "location": [121.479, 31.236], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "上海科技馆", "address": "上海市浦东新区世纪大道2000号", "location": [121.540, 31.220], "type": "博物馆", "cost": 60, "visit_duration": 150, "opening_hours": "09:00-17:15"},
+        {"name": "朱家角古镇", "address": "上海市青浦区朱家角镇", "location": [121.054, 31.110], "type": "景区", "cost": 0, "visit_duration": 180, "opening_hours": "08:30-16:30"}
+      ],
+      "weather": [
+        {"day": "2026-11-15", "weather": "晴", "temp_max": 18, "temp_min": 9},
+        {"day": "2026-11-16", "weather": "多云", "temp_max": 17, "temp_min": 8},
+        {"day": "2026-11-17", "weather": "晴", "temp_max": 19, "temp_min": 10},
+        {"day": "2026-11-18", "weather": "多云", "temp_max": 18, "temp_min": 9},
+        {"day": "2026-11-19", "weather": "晴", "temp_max": 17, "temp_min": 8}
+      ]
+    },
+
+    {
+      "id": "nanjing-3d-empty-prefs",
+      "tier": "capability",
+      "label": "南京3天无偏好",
+      "request": {
+        "destination": "南京", "start_date": "2026-09-12", "travel_days": 3,
+        "preferences": [], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "总统府", "address": "南京市玄武区长江路292号", "location": [118.797, 32.040], "type": "风景名胜", "cost": 35, "visit_duration": 120, "opening_hours": "08:30-18:00"},
+        {"name": "中山陵景区", "address": "南京市玄武区石象路7号", "location": [118.853, 32.046], "type": "风景名胜", "cost": 0, "visit_duration": 180, "opening_hours": "08:30-17:00"},
+        {"name": "南京博物院", "address": "南京市玄武区东长安街321号", "location": [118.840, 32.052], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "明孝陵景区", "address": "南京市玄武区石象路7号", "location": [118.860, 32.052], "type": "风景名胜", "cost": 70, "visit_duration": 180, "opening_hours": "07:00-18:30"},
+        {"name": "南京夫子庙", "address": "南京市秦淮区贡院街", "location": [118.785, 32.022], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": "09:00-22:00"},
+        {"name": "玄武湖景区", "address": "南京市玄武区玄武巷1号", "location": [118.795, 32.075], "type": "风景名胜", "cost": 0, "visit_duration": 120, "opening_hours": "06:00-22:00"}
+      ],
+      "weather": [
+        {"day": "2026-09-12", "weather": "多云", "temp_max": 30, "temp_min": 22},
+        {"day": "2026-09-13", "weather": "晴", "temp_max": 31, "temp_min": 23},
+        {"day": "2026-09-14", "weather": "晴", "temp_max": 32, "temp_min": 24}
+      ]
+    },
+
+    {
+      "id": "xian-3d-full-constraints",
+      "tier": "capability",
+      "label": "西安3天全避雷",
+      "request": {
+        "destination": "西安", "start_date": "2026-11-08", "travel_days": 3,
+        "preferences": [], "negative_constraints": ["人多的景点", "网红打卡", "商业街区", "需要长时间排队的"]
+      },
+      "pool": [
+        {"name": "兵马俑", "address": "西安市临潼区秦陵北路", "location": [109.279, 34.385], "type": "博物馆", "cost": 120, "visit_duration": 240, "opening_hours": "08:30-17:00"},
+        {"name": "大雁塔", "address": "西安市雁塔区大慈恩寺", "location": [108.964, 34.222], "type": "风景名胜", "cost": 50, "visit_duration": 90, "opening_hours": "08:00-17:00"},
+        {"name": "西安城墙", "address": "西安市莲湖区环城南路", "location": [108.945, 34.262], "type": "风景名胜", "cost": 54, "visit_duration": 120, "opening_hours": "08:00-22:00"},
+        {"name": "陕西历史博物馆", "address": "西安市雁塔区小寨东路91号", "location": [108.952, 34.218], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "华清宫", "address": "西安市临潼区华清路38号", "location": [109.265, 34.395], "type": "景区", "cost": 120, "visit_duration": 180, "opening_hours": "07:00-19:00"},
+        {"name": "回民街", "address": "西安市莲湖区北院门", "location": [108.939, 34.265], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-11-08", "weather": "晴", "temp_max": 14, "temp_min": 4},
+        {"day": "2026-11-09", "weather": "多云", "temp_max": 13, "temp_min": 3},
+        {"day": "2026-11-10", "weather": "晴", "temp_max": 15, "temp_min": 5}
+      ]
+    },
+
+    {
+      "id": "xian-3d-multi-clusters-conflict",
+      "tier": "capability",
+      "label": "西安3天多cluster冲突",
+      "request": {
+        "destination": "西安", "start_date": "2026-04-15", "travel_days": 3,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "兵马俑", "address": "西安市临潼区秦陵北路", "location": [109.279, 34.385], "type": "博物馆", "cost": 120, "visit_duration": 240, "opening_hours": "08:30-17:00"},
+        {"name": "华清宫", "address": "西安市临潼区华清路38号", "location": [109.265, 34.395], "type": "景区", "cost": 120, "visit_duration": 180, "opening_hours": "07:00-19:00"},
+        {"name": "钟鼓楼", "address": "西安市莲湖区钟楼盘道", "location": [108.939, 34.270], "type": "风景名胜", "cost": 50, "visit_duration": 60, "opening_hours": "08:30-21:30"},
+        {"name": "回民街", "address": "西安市莲湖区北院门", "location": [108.939, 34.265], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "陕西历史博物馆", "address": "西安市雁塔区小寨东路91号", "location": [108.952, 34.218], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "大雁塔", "address": "西安市雁塔区大慈恩寺", "location": [108.964, 34.222], "type": "风景名胜", "cost": 50, "visit_duration": 90, "opening_hours": "08:00-17:00"},
+        {"name": "大唐芙蓉园", "address": "西安市雁塔区芙蓉西路99号", "location": [108.969, 34.213], "type": "景区", "cost": 120, "visit_duration": 180, "opening_hours": "09:00-22:00"},
+        {"name": "西安城墙", "address": "西安市莲湖区环城南路", "location": [108.945, 34.262], "type": "风景名胜", "cost": 54, "visit_duration": 120, "opening_hours": "08:00-22:00"}
+      ],
+      "weather": [
+        {"day": "2026-04-15", "weather": "晴", "temp_max": 22, "temp_min": 9},
+        {"day": "2026-04-16", "weather": "多云", "temp_max": 21, "temp_min": 8},
+        {"day": "2026-04-17", "weather": "晴", "temp_max": 23, "temp_min": 10}
+      ]
+    },
+
+    {
+      "id": "qingdao-3d-no-opening-hours",
+      "tier": "capability",
+      "label": "青岛3天无营业时间",
+      "request": {
+        "destination": "青岛", "start_date": "2026-10-05", "travel_days": 3,
+        "preferences": ["自然风光"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "栈桥", "address": "青岛市市南区太平路12号", "location": [120.317, 36.067], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": null},
+        {"name": "八大关风景区", "address": "青岛市市南区黄海路", "location": [120.336, 36.064], "type": "风景名胜", "cost": 0, "visit_duration": 120, "opening_hours": null},
+        {"name": "崂山", "address": "青岛市崂山区梅岭东路29号", "location": [120.464, 36.108], "type": "风景名胜", "cost": 90, "visit_duration": 300, "opening_hours": null},
+        {"name": "青岛啤酒博物馆", "address": "青岛市市北区登州路56号", "location": [120.323, 36.087], "type": "博物馆", "cost": 60, "visit_duration": 90, "opening_hours": null},
+        {"name": "五四广场", "address": "青岛市市南区山东路", "location": [120.382, 36.072], "type": "景区", "cost": 0, "visit_duration": 60, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-10-05", "weather": "晴", "temp_max": 22, "temp_min": 14},
+        {"day": "2026-10-06", "weather": "多云", "temp_max": 21, "temp_min": 13},
+        {"day": "2026-10-07", "weather": "晴", "temp_max": 23, "temp_min": 15}
+      ]
+    },
+
+    {
+      "id": "nanjing-3d-all-weather-unknown",
+      "tier": "capability",
+      "label": "南京3天天气全未知",
+      "request": {
+        "destination": "南京", "start_date": "2026-12-15", "travel_days": 3,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "总统府", "address": "南京市玄武区长江路292号", "location": [118.797, 32.040], "type": "风景名胜", "cost": 35, "visit_duration": 120, "opening_hours": "08:30-18:00"},
+        {"name": "中山陵景区", "address": "南京市玄武区石象路7号", "location": [118.853, 32.046], "type": "风景名胜", "cost": 0, "visit_duration": 180, "opening_hours": "08:30-17:00"},
+        {"name": "南京博物院", "address": "南京市玄武区东长安街321号", "location": [118.840, 32.052], "type": "博物馆", "cost": 0, "visit_duration": 150, "opening_hours": "09:00-17:00"},
+        {"name": "明孝陵景区", "address": "南京市玄武区石象路7号", "location": [118.860, 32.052], "type": "风景名胜", "cost": 70, "visit_duration": 180, "opening_hours": "07:00-18:30"},
+        {"name": "南京夫子庙", "address": "南京市秦淮区贡院街", "location": [118.785, 32.022], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": "09:00-22:00"},
+        {"name": "玄武湖景区", "address": "南京市玄武区玄武巷1号", "location": [118.795, 32.075], "type": "风景名胜", "cost": 0, "visit_duration": 120, "opening_hours": "06:00-22:00"}
+      ],
+      "weather": [
+        {"day": "2026-12-15", "weather": "unknown", "temp_max": 0, "temp_min": 0},
+        {"day": "2026-12-16", "weather": "unknown", "temp_max": 0, "temp_min": 0},
+        {"day": "2026-12-17", "weather": "unknown", "temp_max": 0, "temp_min": 0}
+      ]
+    },
+
+    {
+      "id": "beijing-shanghai-cross-city",
+      "tier": "capability",
+      "label": "北京-上海长途跳跃",
+      "request": {
+        "destination": "北京", "start_date": "2026-09-01", "travel_days": 3,
+        "preferences": ["历史文化"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "故宫博物院", "address": "北京市东城区景山前街4号", "location": [116.397, 39.916], "type": "博物馆", "cost": 60, "visit_duration": 240, "opening_hours": "08:30-17:00"},
+        {"name": "外滩", "address": "上海市黄浦区中山东一路", "location": [121.490, 31.240], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "颐和园", "address": "北京市海淀区新建宫门路19号", "location": [116.275, 39.999], "type": "园林", "cost": 30, "visit_duration": 180, "opening_hours": "06:30-18:00"},
+        {"name": "东方明珠", "address": "上海市浦东新区世纪大道1号", "location": [121.499, 31.240], "type": "风景名胜", "cost": 160, "visit_duration": 120, "opening_hours": "08:00-21:00"}
+      ],
+      "weather": [
+        {"day": "2026-09-01", "weather": "晴", "temp_max": 24, "temp_min": 14},
+        {"day": "2026-09-02", "weather": "晴", "temp_max": 25, "temp_min": 15},
+        {"day": "2026-09-03", "weather": "多云", "temp_max": 23, "temp_min": 13}
+      ]
+    },
+
+    {
+      "id": "xiamen-3d-multi-clusters",
+      "tier": "regression",
+      "label": "厦门3天多cluster",
+      "request": {
+        "destination": "厦门", "start_date": "2026-10-20", "travel_days": 3,
+        "preferences": ["小众路线"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "鼓浪屿", "address": "厦门市思明区鼓浪屿", "location": [118.067, 24.448], "type": "风景名胜", "cost": 0, "visit_duration": 240, "opening_hours": null},
+        {"name": "南普陀寺", "address": "厦门市思明区思明南路515号", "location": [118.085, 24.443], "type": "寺庙", "cost": 0, "visit_duration": 90, "opening_hours": "08:00-17:00"},
+        {"name": "厦门大学", "address": "厦门市思明区思明南路422号", "location": [118.088, 24.441], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "环岛路", "address": "厦门市思明区环岛路", "location": [118.110, 24.470], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "曾厝垵", "address": "厦门市思明区曾厝垵", "location": [118.117, 24.435], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "集美学村", "address": "厦门市集美区集美学村", "location": [118.097, 24.567], "type": "景区", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "中山路", "address": "厦门市思明区中山路", "location": [118.082, 24.456], "type": "商圈", "cost": 0, "visit_duration": 60, "opening_hours": null}
+      ],
+      "weather": [
+        {"day": "2026-10-20", "weather": "晴", "temp_max": 28, "temp_min": 21},
+        {"day": "2026-10-21", "weather": "多云", "temp_max": 27, "temp_min": 20},
+        {"day": "2026-10-22", "weather": "晴", "temp_max": 29, "temp_min": 22}
+      ]
+    },
+
+    {
+      "id": "hangzhou-3d-photography",
+      "tier": "capability",
+      "label": "杭州3天摄影打卡",
+      "request": {
+        "destination": "杭州", "start_date": "2026-11-25", "travel_days": 3,
+        "preferences": ["摄影打卡"], "negative_constraints": []
+      },
+      "pool": [
+        {"name": "西湖", "address": "杭州市西湖区龙井路1号", "location": [120.149, 30.246], "type": "风景名胜", "cost": 0, "visit_duration": 180, "opening_hours": null},
+        {"name": "雷峰塔", "address": "杭州市西湖区南山路15号", "location": [120.151, 30.243], "type": "风景名胜", "cost": 40, "visit_duration": 60, "opening_hours": "08:00-19:00"},
+        {"name": "断桥残雪", "address": "杭州市西湖区北山街", "location": [120.149, 30.252], "type": "景区", "cost": 0, "visit_duration": 30, "opening_hours": null},
+        {"name": "灵隐飞来峰", "address": "杭州市西湖区灵隐路", "location": [120.099, 30.244], "type": "风景名胜", "cost": 45, "visit_duration": 60, "opening_hours": "07:30-17:30"},
+        {"name": "清河坊", "address": "杭州市上城区中山中路", "location": [120.171, 30.247], "type": "商圈", "cost": 0, "visit_duration": 90, "opening_hours": null},
+        {"name": "京杭大运河", "address": "杭州市拱墅区运河路", "location": [120.146, 30.297], "type": "景区", "cost": 0, "visit_duration": 120, "opening_hours": null},
+        {"name": "六和塔", "address": "杭州市西湖区之江路", "location": [120.103, 30.197], "type": "风景名胜", "cost": 30, "visit_duration": 60, "opening_hours": "07:00-17:30"}
+      ],
+      "weather": [
+        {"day": "2026-11-25", "weather": "晴", "temp_max": 16, "temp_min": 7},
+        {"day": "2026-11-26", "weather": "多云", "temp_max": 15, "temp_min": 6},
+        {"day": "2026-11-27", "weather": "晴", "temp_max": 17, "temp_min": 8}
+      ]
     }
   ]
 }

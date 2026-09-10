@@ -32,7 +32,7 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 - 🌧️ **天气感知行程** — Intent 阶段拉高德实时天气,雨天引导 LLM 优先安排室内景点
 - ⚡ **异步任务 + SSE 推送** — `POST /api/trip/plan` 立即返回 task_id,前端订阅 SSE 拿实时进度和最终结果,不再 30~90 秒干等
 - 🗄️ **Redis 后端(可选)** — 高德 POI/天气缓存 + 任务状态走 Redis;未配置或不可用时静默降级,主流程不受影响
-- 🧪 **可量化质量** — 20 条冻结样本、8 项硬规则评分,`pass / pass@k / pass^k` 三档指标,跑多次取平均,质量可追溯
+- 🧪 **可量化质量** — 30 条冻结样本、8 项硬规则评分,`pass / pass@k / pass^k` 三档指标,跑多次取平均,质量可追溯
 
 所有景点数据均来自**高德真实 POI**;所有价格来自**静态票价表**;LLM 输出的每一项都能在 PlannerContext 里找到出处。
 
@@ -320,7 +320,7 @@ happy_trip/
 ├── evaluation/                           # 评测框架(独立目录)
 │   ├── EVAL_GUIDE.md                     # 使用手册
 │   ├── fixtures/
-│   │   └── cases.json                    # 20 条冻结用例(13 regression + 7 capability)
+│   │   └── cases.json                    # 30 条冻结用例(14 regression + 16 capability)
 │   ├── graders/
 │   │   ├── code_graders.py               # G1-G8 硬规则评分(确定性,零 LLM 成本)
 │   │   └── llm_judge.py                  # 5 维 LLM 评分(--judge 启用)
@@ -364,7 +364,7 @@ happy_trip/
 ### 评估设计
 
 ```
-冻结 fixture (cases.json, 20 条)        plan_trip(req, _ctx=ctx)
+冻结 fixture (cases.json, 30 条)        plan_trip(req, _ctx=ctx)
  ├─ request: 用户需求                    │
  ├─ pool: POI 候选池(手工构造)           │  ← 完全跳过高德 API
  ├─ weather: 天气预报(手工构造)           │
@@ -385,10 +385,10 @@ happy_trip/
 
 设计要点(参考业内主流评测框架):
 
-- **输入冻结**:20 条 fixture 全部手工构造 POI 池和天气,直接喂给 `plan_trip(req, _ctx=ctx)`,**完全跳过**真实高德 API 调用,跑一次评测零外部成本,几秒出结果
+- **输入冻结**:30 条 fixture 全部手工构造 POI 池和天气,直接喂给 `plan_trip(req, _ctx=ctx)`,**完全跳过**真实高德 API 调用,跑一次评测零外部成本
 - **mini-graph 复用**: `_ctx` 短路 `build_context`,主流程(planner → 校验 → time_check → reviewer)与线上完全一致
 - **硬规则 + 可选 LLM 评委双轨**:确定性代码打分是默认,可加 `--judge` 启用 5 维 LLM 评分(只看最终 plan)
-- **tier 分层**:`regression`(13 条,期望 ≈100%,防退步)+ `capability`(7 条,小池/雨天/严寒等,提升目标)
+- **tier 分层**:`regression`(14 条,期望 ≈100%,防退步)+ `capability`(16 条,小池/雨天/严寒/边界等,提升目标)
 - **可复现**:同 fixture + 同模型 + 同 temperature,随机性收敛于 LLM 自身,可对比多次结果
 
 ### 核心指标
@@ -410,13 +410,58 @@ happy_trip/
 
 **5 维 LLM 评分 (--judge 启用)**:preference_fit / habit_fit / route_reasonableness / weather_adaptation / notes_quality。
 
+### 实测结果(k=5,30 条全跑)
+
+> 报告:`evaluation/report_md/eval_report_20260910_170708.md`(完整数据)
+
+| 指标 | 值 |
+|---|---|
+| 样本数 | **30**(14 regression + 16 capability) |
+| **pass@k**(≥1 次通过) | **28/30 = 93.3%** |
+| **pass^k**(全稳定通过) | **16/30 = 53.3%** |
+| 平均单次耗时 | **24.5s** |
+| 5 次全跑总耗时 | **~12 分钟** |
+
+#### 单项硬规则通过率(144 次 trial 累计)
+
+| 代号 | pass/total | 通过率 |
+|---|---|---|
+| G1 候选池封闭 | 143/144 | 99.3% |
+| G2 时长一致 | 141/144 | 97.9% |
+| G3 时长预算 | 138/144 | 95.8% |
+| G4 结构合法 | 140/144 | 97.2% |
+| **G5 多样性** | 144/144 | **100.0%** |
+| G6 路径优化 | 135/144 | 93.8% |
+| G7 天气落地 | 139/144 | 96.5% |
+| **G8 LLM 响应** | 144/144 | **100.0%** |
+
+**最强项**:G5 多样性 + G8 LLM 响应(100% 通过,基础架构可靠)
+**最弱项**:G6 路径优化(93.8%)— 后端 2-opt 偶发因 POI 数过多未收敛到最优顺序
+
+#### Tier 维度
+
+| Tier | pass@k | pass^k |
+|---|---|---|
+| regression (14 条) | 14/14 = 100% | 7/14 = 50% |
+| capability (16 条) | 14/16 = 87.5% | 9/16 = 56.3% |
+
+#### 当前已知难点(必失败 case)
+
+| Case | 原因 | 处理 |
+|---|---|---|
+| `sanya-4d-beach-capability` | 5 POI 4 天,L1 POI visit_duration 360min 过大,易触发 G3 时间超载 | 缩短 visit_duration 或减少景点 |
+| `nanjing-3d-all-weather-unknown` | 天气全为 `unknown`,G7 必失败 | fixture 设计为预期失败,验证边界行为 |
+| `guiyang-3d-small-pool-capability` | POI=4 偏远小城,G1/G3 通过率约 40% | 后续扩 POI 池 |
+| `beijing-3d-rainy-capability` | 全雨 3 天 + 部分露天 POI,G6 路径优化偶发不收敛 | 雨天减露天景点 |
+| `xiamen-3d-multi-clusters` | 多 cluster 跨岛,G3 易超载 | 缩短跨岛 POI 距离 |
+
 ### 快速运行
 
 ```bash
 conda activate agents
 cd happy_trip
 
-# 全部 20 条,k=1,无 LLM 评委(2-5 分钟,因走 LLM;fixture 冻结已跳过 API)
+# 全部 30 条,k=1,无 LLM 评委(~5-10 分钟;fixture 冻结已跳过 API,耗时仅 LLM 调用)
 python -m evaluation.run_eval
 
 # 全部 k=5 稳定性
@@ -438,7 +483,8 @@ python -m evaluation.run_eval --k 5 --out eval_report.md
 
 ### 已知限制
 
-- **小池子挑战通过率低**:丽江、大理、贵阳等 fixture 的 pool <5 个 POI,G3(时长预算)与 G5(多样性)通过率下降
+- **Sanya/Guiyang/Beijing-rainy case 通过率低**:`sanya-4d-beach-capability` 0% 通过(4 天大时长景点超载)、`nanjing-3d-all-weather-unknown` 0%(预期失败)、`guiyang-3d-small-pool` / `beijing-3d-rainy` 仅 40% — 小池/雨天场景需要更多 LLM 微调或 fixture 改造
+- **G6 路径优化 93.8%**:后端 2-opt 在 POI 过多(>10)时偶发不收敛;后续可用 3-opt 或 Lin-Kernighan
 - **LLM thinking 关闭对 M3 部分生效**:响应时间从 30s 降到 ~18s,但完全关闭依赖 minimax 服务端支持
 - **Redis 不可用时降级为内存版 task dict**:后端重启后 task 丢失,SSE 流拿到 `failed: task expired` 后前端跳回首页;重启前已完成的任务不受影响
 - **fixture 手工构造**:天气与 visit_duration 依赖人工标注,误差累积;新增用例必须保证 `pool[i].visit_duration` 必填否则 G2 必失败
@@ -461,7 +507,7 @@ python -m evaluation.run_eval --k 5 --out eval_report.md
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 景点规划(POI 召回 + 聚类 + 按天分配) | ✅ In | 核心能力,经 20 条评测用例验证 |
+| 景点规划(POI 召回 + 聚类 + 按天分配) | ✅ In | 核心能力,经 30 条评测用例验证 |
 | 路径优化(Haversine 暴力枚举 / 2-opt) | ✅ In | N ≤ 7 全排列,N > 7 多起点 2-opt |
 | 天气感知行程 | ✅ In | 注入 `plan.days[].weather/temp_max/temp_min` |
 | 用户注册 / 登录(JWT + PBKDF2) | ✅ In | 路由守卫强制未登录跳 `/login` |

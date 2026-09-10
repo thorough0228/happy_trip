@@ -43,8 +43,16 @@ from evaluation.graders.code_graders import ALL_GRADERS, grade_all
 # ---- 路径 ----
 FIXTURES_PATH = Path(__file__).parent / "fixtures" / "cases.json"
 TRANSCRIPTS_DIR = Path(__file__).parent / "transcripts"
-REPORT_JSON_PATH = Path(__file__).parent / "eval_report.json"
-REPORT_MD_PATH = Path(__file__).parent / "eval_report.md"
+REPORT_JSON_DIR = Path(__file__).parent / "report_json"
+REPORT_MD_DIR = Path(__file__).parent / "report_md"
+
+
+def _make_report_paths(timestamp: str):
+    """根据时间戳生成报告路径(具体到秒):report_json/eval_report_20260910_152939.json + report_md/eval_report_20260910_152939.md"""
+    return (
+        REPORT_JSON_DIR / f"eval_report_{timestamp}.json",
+        REPORT_MD_DIR / f"eval_report_{timestamp}.md",
+    )
 
 
 # ---- Fixture 加载 ----
@@ -267,6 +275,12 @@ def parse_args() -> argparse.Namespace:
 
 async def main_async():
     args = parse_args()
+    # 每次跑评测生成带时间戳的文件名(具体到秒)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    default_report_json_path, default_report_md_path = _make_report_paths(timestamp)
+    # 确保报告目录存在(首次运行自动创建)
+    default_report_json_path.parent.mkdir(parents=True, exist_ok=True)
+    default_report_md_path.parent.mkdir(parents=True, exist_ok=True)
     cases = load_fixtures()
     if args.only:
         cases = [c for c in cases if args.only.lower() in c["id"].lower()]
@@ -288,8 +302,9 @@ async def main_async():
             print(f"[{i}/{len(cases)}] {fix['label']} (trial {k+1}/{args.k}) ...", end=" ", flush=True)
             t = await run_one_trial(req, ctx, fix)
             trials.append(t)
-            status = "✓" if t.get("all_pass") else ("✗" if t.get("error") else "✗")
-            print(f"{status}  {t['latency_sec']}s")
+            status = "[OK]" if t.get("all_pass") else "[FAIL]"
+            err = f" {t['error'][:60]}" if t.get("error") else ""
+            print(f"{status} {t['latency_sec']}s{err}")
 
         # LLM 评委(只对最后一次 trial 的 plan 评)
         judge = None
@@ -318,16 +333,21 @@ async def main_async():
         if i < len(cases):
             await asyncio.sleep(INTERVAL_SEC)
 
-    # JSON 报告
-    REPORT_JSON_PATH.write_text(
+    # JSON 报告(带时间戳的文件名,如 eval_report_20260910_152939.json)
+    default_report_json_path.write_text(
         json.dumps({"summary": _summary(per_case), "per_case": per_case}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"\n详细 JSON 报告: {REPORT_JSON_PATH}")
+    print(f"\n详细 JSON 报告: {default_report_json_path}")
 
-    # Markdown 报告
+    # Markdown 报告(同样带时间戳)
     md = render_markdown_report(per_case)
-    out_path = Path(args.out) if args.out else REPORT_MD_PATH
+    if args.out:
+        # 用户指定路径,确保父目录存在
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        out_path = default_report_md_path
     out_path.write_text(md, encoding="utf-8")
     print(f"Markdown 报告: {out_path}")
     print("\n" + md)

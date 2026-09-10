@@ -39,8 +39,8 @@ npm-debug.log*
 # ============================================
 # 评估输出
 # ============================================
-evaluation/eval_report.json
-evaluation/eval_report.md
+evaluation/report_json/
+evaluation/report_md/
 evaluation/transcripts/
 
 # ============================================
