@@ -13,7 +13,7 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![Redis](https://img.shields.io/badge/Redis-5%2B-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 [![Amap](https://img.shields.io/badge/POI-高德地图-1677FF)](https://lbs.amap.com/)
-[![Eval: 7 hard rules](https://img.shields.io/badge/Eval-7%20hard%20rules-brightgreen)](evaluation/run_eval.py)
+[![Eval: 8 hard rules](https://img.shields.io/badge/Eval-8%20hard%20rules-brightgreen)](evaluation/run_eval.py)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-blue)](LICENSE)
 
 [项目结构](#项目结构) · [系统架构](#系统架构) · [设计亮点](#设计亮点) · [快速开始](#快速开始) · [评测体系](#评测体系) · [工程边界](#工程边界)
@@ -27,12 +27,12 @@ LLM 只能在事实范围内编排,凭据程序控制、硬规则校验、可量
 大多数 LLM 旅行助手是"凭印象编造行程"的赌博 — 景点可能不存在,价格随便估,酒店名是幻觉。Happy Trip 把一次旅行拆成可追溯、可校验、可评测的过程:
 
 - 🧠 **PlannerContext 协议** — 外部事实(高德 POI / 天气 / 票价)由程序收集并打包,LLM 只在事实范围内编排,事实不会被"创作"
-- 🛡️ **双轨防御** — prompt 软约束 + 7 项硬规则校验 + 反思重试循环,既靠 LLM 自觉也靠程序强制
+- 🛡️ **双轨防御** — prompt 软约束 + 8 项硬规则校验 + 反思重试循环,既靠 LLM 自觉也靠程序强制
 - 🎫 **票价可信** — 景点票价由代码从静态票价表查询(免费则 0),LLM 不允许自报数字,杜绝价格幻觉;无预算约束,LLM 只按行程体验编排
 - 🌧️ **天气感知行程** — Intent 阶段拉高德实时天气,雨天引导 LLM 优先安排室内景点
 - ⚡ **异步任务 + SSE 推送** — `POST /api/trip/plan` 立即返回 task_id,前端订阅 SSE 拿实时进度和最终结果,不再 30~90 秒干等
 - 🗄️ **Redis 后端(可选)** — 高德 POI/天气缓存 + 任务状态走 Redis;未配置或不可用时静默降级,主流程不受影响
-- 🧪 **可量化质量** — 20 条冻结样本、7 项硬规则、45-55% hard_pass 稳态,跑多次取平均,质量可追溯
+- 🧪 **可量化质量** — 20 条冻结样本、8 项硬规则评分,`pass / pass@k / pass^k` 三档指标,跑多次取平均,质量可追溯
 
 所有景点数据均来自**高德真实 POI**;所有价格来自**静态票价表**;LLM 输出的每一项都能在 PlannerContext 里找到出处。
 
@@ -92,7 +92,7 @@ _enrich_locations                          前端 Result.vue 渲染行程
 | 用户认证    | PyJWT + PBKDF2 密码哈希 + SQLite |
 | 前端      | Vue 3 + TypeScript + Vite + Ant Design Vue |
 | 前端地图    | 高德 Web JS API(动态加载) |
-| 评估脚本    | Python(规则评测,7 项硬指标) |
+| 评估脚本    | Python(规则评测,8 项硬指标 G1-G8) |
 
 ---
 
